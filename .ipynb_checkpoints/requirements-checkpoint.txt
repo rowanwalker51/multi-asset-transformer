@@ -6,4 +6,3 @@ torch
 tqdm
 jupyter
 seaborn
-yfinance
