@@ -1,9 +1,8 @@
-numpy
-pandas
-scikit-learn
-matplotlib
-torch
-tqdm
-jupyter
-seaborn
-yfinance
+numpy>=1.25.0
+pandas>=2.1.0
+torch>=2.1.0
+hmmlearn>=0.3.8
+statsmodels>=1.2.0
+scipy>=1.12.0
+matplotlib>=3.8.0
+yfinance>=0.2.27
