@@ -154,7 +154,10 @@ def backtest(param_grid: Dict[str, float],
              initial_equity: float = 1000,
              sharpe_only: bool = False,
              output: bool = True,
-             optimiser: bool = False) -> Union[float, Tuple[pd.Series, pd.Series, pd.Series], Tuple[pd.Series, float]]:
+             optimiser: bool = False,
+             input_loc: str = '../data/processed/predicted_df.csv',
+             benchmark_loc: str = '../data/raw/ftse_index.csv',
+             rf_loc: str = '../data/raw/rf/rf.csv') -> Union[float, Tuple[pd.Series, pd.Series, pd.Series], Tuple[pd.Series, float]]:
     """
     Perform a backtest of a signal-based trading strategy with risk management rules.
 
@@ -199,7 +202,9 @@ def backtest(param_grid: Dict[str, float],
     fraction_per_trade = param_grid['leverage']
 
     # Generate trading signals
-    df = add_signal(long_threshold=long_threshold, short_threshold=short_threshold)
+    df = add_signal(long_threshold=long_threshold, 
+                    short_threshold=short_threshold,
+                    input_loc=input_loc)
     df = df.loc[start_date:end_date]
 
     # Prepare prices and position matrices
@@ -281,9 +286,9 @@ def backtest(param_grid: Dict[str, float],
     equity_df.index = pd.to_datetime(equity_df.index)
 
     # Benchmark & risk-free
-    benchmark = pd.read_csv("../data/raw/ftse_index.csv", index_col='Date', parse_dates=True)[['Close']]
+    benchmark = pd.read_csv(benchmark_loc, index_col='Date', parse_dates=True)[['Close']]
     benchmark.columns = ['Benchmark_Close']
-    rf = pd.read_csv('../data/raw/rf/rf.csv', index_col='Date', parse_dates=True).rename(columns={'Close':'rf'})
+    rf = pd.read_csv(rf_loc, index_col='Date', parse_dates=True).rename(columns={'Close':'rf'})
 
     equity_df = equity_df.join(benchmark, how='left').join(rf, how='left')
     equity_df["Benchmark_Equity"] = (1 + equity_df["Benchmark_Close"].pct_change(fill_method=None)).cumprod() * initial_equity

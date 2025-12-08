@@ -28,13 +28,17 @@ def annualized_vol(returns: pd.Series, periods: int = 252) -> float:
 
 def sharpe_ratio(returns: pd.Series, rf: pd.Series, periods: int = 252) -> float:
     """Compute annualized Sharpe ratio."""
+    rf_annual = rf / 100
+    rf_daily = (1 + rf_annual)**(1/252) - 1
     excess_returns = returns - (rf / 100 / periods)
     return (excess_returns.mean() / excess_returns.std(ddof=1)) * np.sqrt(periods)
 
 
 def sortino_ratio(returns: pd.Series, rf: pd.Series, periods: int = 252) -> float:
     """Compute annualized Sortino ratio."""
-    excess_returns = returns - rf
+    rf_annual = rf / 100
+    rf_daily = (1 + rf_annual)**(1/252) - 1
+    excess_returns = returns - rf_daily
     downside_std = excess_returns[excess_returns < 0].std(ddof=1)
     mean_excess = excess_returns.mean()
     return mean_excess / downside_std * np.sqrt(periods)
@@ -42,6 +46,13 @@ def sortino_ratio(returns: pd.Series, rf: pd.Series, periods: int = 252) -> floa
 
 
 # Drawdown Metrics
+
+def compute_drawdown(equity: pd.Series) -> pd.Series:
+    """Compute drawdown curve."""
+    peak = equity.cummax()
+    drawdown = (equity - peak) / peak
+    return drawdown
+    
 
 def max_drawdown(equity: pd.Series) -> float:
     """Compute maximum drawdown from equity curve."""
@@ -125,7 +136,9 @@ def compute_alpha_beta(strategy: pd.Series, benchmark: pd.Series, rf: pd.Series)
     """
     strat_returns = compute_returns(strategy).to_frame(name='returns')
     bmark_returns = compute_returns(benchmark).to_frame(name='bmark')
-    rf_returns = compute_returns(rf).to_frame()
+    rf_annual = rf / 100
+    rf_daily = (1 + rf_annual)**(1/252) - 1
+    rf_returns = rf_daily.to_frame(name='rf')
 
     df = strat_returns.join(bmark_returns, how='inner') \
                       .join(rf_returns, how='inner') \
@@ -174,17 +187,20 @@ def full_risk_report(strategy: pd.Series, benchmark: pd.Series, rf: pd.Series) -
             "Sharpe Ratio": round(sharpe_ratio(r, rf), 2),
             "Sortino Ratio": round(sortino_ratio(r, rf), 2),
             "Max Drawdown": f"{max_drawdown(series) * 100:.2f}%",
-            "Drawdown Duration (days)": drawdown_duration(series),
+            "Drawdown days": drawdown_duration(series),
             "Win Rate": f"{win_rate(r) * 100:.2f}%",
-            "Loss Rate": f"{loss_rate(r) * 100:.2f}%",
-            "Payoff Ratio": round(payoff_ratio(r), 2),
-            "Profit Factor": round(profit_factor(r), 2),
-            "Tail Ratio": round(tail_ratio(r), 2),
             "Historical VaR (5%)": f"{var_historical(r) * 100:.2f}%",
             "Gaussian VaR (5%)": f"{var_gaussian(r) * 100:.2f}%",
             "Cornish-Fisher VaR (5%)": f"{var_cornish_fisher(r) * 100:.2f}%",
-            "CVaR (5%)": f"{cvar_historical(r) * 100:.2f}%",
-            "Skewness": round(skew(r), 2),
-            "Kurtosis": round(kurtosis(r), 2)
-        }
+            "CVaR (5%)": f"{cvar_historical(r) * 100:.2f}%"
+        }               
     return pd.DataFrame(report)
+
+
+def alpha_beta_table(strategy: pd.Series, benchmark: pd.Series, rf: pd.Series) -> pd.DataFrame:
+    """Computes table with annualised Alpha and Beta to Benchmark."""
+    alpha, beta = compute_alpha_beta(strategy, benchmark, rf)
+    data = {"Metric": ["Annualised Alpha", "Beta to Benchmark"],
+            "Value": [f"{alpha * 100:.2f}%", f"{beta:.2f}"]}
+    
+    return pd.DataFrame(data).set_index('Metric')
