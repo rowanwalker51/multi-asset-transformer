@@ -5,6 +5,7 @@ import time
 import torch
 import torch.nn as nn
 import pandas as pd
+import numpy as np
 
 from torch.utils.data import TensorDataset, DataLoader
 

@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 import torch
+import torch.nn as nn
 import numpy as np
 import pandas as pd
 
@@ -9,6 +10,8 @@ sys.path.append("../")
 
 from models.model import TimeSeriesTransformer
 from utils.params import SEQ_LEN
+
+import time
 
 
 def load_model(feature_dim: int,
@@ -74,7 +77,7 @@ def model_prediction(tickers: List[str],
     verbose : bool, default=True
         If True, prints progress and status.
     """
-
+    start = time.perf_counter()
     dfs = {}
 
     # Loop over each prediction horizon
@@ -107,7 +110,7 @@ def model_prediction(tickers: List[str],
                 stock_tensor = torch.tensor([ticker_id], dtype=torch.long)
 
                 # Model inference
-                with torch.no_grad():
+                with torch.inference_mode():
                     pred = model(seq_tensor, stock_tensor, regime_tensor)
                     prob_up = torch.softmax(pred, dim=1)[0, 1].item()
 
@@ -137,5 +140,8 @@ def model_prediction(tickers: List[str],
     output_path = f'{path}predicted_df.csv'
     merged.to_csv(output_path)
 
+    end = time.perf_counter()
+
     if verbose:
         print(f'Predicted dataframe saved: {output_path}')
+        print(f"Time taken: {end - start:.2f} seconds")
