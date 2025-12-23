@@ -4,9 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from utils import risk
+from src.utils.risk import compute_returns, sharpe_ratio, compute_alpha_beta
 
 
 def add_signal(long_threshold: float,
@@ -85,10 +83,10 @@ def create_backtest_data(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 def vol_target_weights(signals: pd.Series,
                        returns: pd.DataFrame,
-                       target_vol: float = 0.10,
+                       target_vol: float,
+                       max_leverage: float,
                        lookback: int = 21,
-                       ann_factor: int = 252,
-                       max_leverage: float = 1.0) -> pd.Series:
+                       ann_factor: int = 252) -> pd.Series:
     """
     Calculate volatility-targeted portfolio weights based on signals.
 
@@ -98,14 +96,14 @@ def vol_target_weights(signals: pd.Series,
         Trading signals (+1, 0, -1) for each ticker, indexed by ticker.
     returns : pd.DataFrame
         Daily returns of tickers (same tickers as signals), indexed by date.
-    target_vol : float, default=0.10
+    target_vol : float
         Target annualized portfolio volatility.
+    max_leverage : float
+        Maximum allowed sum of absolute weights.
     lookback : int, default=21
         Rolling window (in days) to compute volatility and covariance.
     ann_factor : int, default=252
         Annualization factor for volatility and covariance.
-    max_leverage : float, default=1.0
-        Maximum allowed sum of absolute weights.
 
     Returns
     -------
@@ -227,7 +225,7 @@ def backtest(param_grid: Dict[str, float],
     for i in range(lookback+1, len(prices)):
         date = prices.index[i]
 
-        # --- Portfolio-level drawdown liquidation ---
+        # Portfolio-level drawdown liquidation
         dd = equity / dd_peak - 1
         if dd < -max_drawdown:
             positions = {t: 0 for t in positions}
@@ -235,19 +233,17 @@ def backtest(param_grid: Dict[str, float],
             holding_days = {t: 0 for t in holding_days}
         dd_peak = max(dd_peak, equity)
 
-        # --- Volatility-targeted weights ---
+        # Volatility-targeted weights
         todays_signals = signals.loc[date]
         window_returns = returns.iloc[:i]
-        target_weights = vol_target_weights(
-            todays_signals,
-            window_returns,
-            target_vol=target_vol,
-            lookback=lookback,
-            ann_factor=252,
-            max_leverage=fraction_per_trade
-        )
+        target_weights = vol_target_weights(todays_signals,
+                                            window_returns,
+                                            target_vol=target_vol,
+                                            lookback=lookback,
+                                            ann_factor=252,
+                                            max_leverage=fraction_per_trade)
 
-        # --- Update positions and apply transaction costs ---
+        # Update positions and apply transaction costs
         for t in positions:
             prev_weight = positions[t]
             new_weight = target_weights[t]
@@ -259,12 +255,12 @@ def backtest(param_grid: Dict[str, float],
                 entry_price[t] = prices.loc[date, t]
                 holding_days[t] = 0
 
-        # --- Increment holding days ---
+        # Increment holding days
         for t in positions:
             if positions[t] != 0:
                 holding_days[t] += 1
 
-        # --- Apply TP/SL and max holding days ---
+        # Apply TP/SL and max holding days
         for t in positions:
             if positions[t] == 0 or entry_price[t] is None:
                 continue
@@ -275,7 +271,7 @@ def backtest(param_grid: Dict[str, float],
                 entry_price[t] = None
                 holding_days[t] = 0
 
-        # --- Daily PnL update ---
+        # Daily PnL update
         daily_ret = sum(positions[t] * returns.loc[date, t] for t in positions)
         equity *= (1 + daily_ret)
         equity_curve.append(equity)
@@ -298,20 +294,20 @@ def backtest(param_grid: Dict[str, float],
     rf_series = equity_df['rf']
 
     # Compute returns for Sharpe ratio / optimisation
-    strategy_returns = risk.compute_returns(strategy_equity)
+    strategy_returns = compute_returns(strategy_equity)
 
     if optimiser:
-        return strategy_returns, risk.sharpe_ratio(strategy_returns, rf_series)
+        return strategy_returns, sharpe_ratio(strategy_returns, rf_series)
     if sharpe_only:
-        return risk.sharpe_ratio(strategy_returns, rf_series)
+        return sharpe_ratio(strategy_returns, rf_series)
 
     if output:
         plt.style.use('ggplot')
         print("Strategy final equity:", f'{strategy_equity.iloc[-1]:,.0f}')
         print("Buy-and-hold final equity:", f'{benchmark_equity.iloc[-1]:,.0f}')
         print('\n')
-        print('Sharpe Ratio:', f'{risk.sharpe_ratio(strategy_returns, rf_series):,.2f}')
-        alpha, beta = risk.compute_alpha_beta(strategy_equity, benchmark_equity, rf_series)
+        print('Sharpe Ratio:', f'{sharpe_ratio(strategy_returns, rf_series):,.2f}')
+        alpha, beta = compute_alpha_beta(strategy_equity, benchmark_equity, rf_series)
         print('Alpha (annualised):', f'{alpha:,.2f}%')
         print('Beta:', f'{beta:,.2f}')
 
@@ -361,13 +357,11 @@ def optimise_sharpe(params: Dict[str, Any],
                   for k, v in params.items()}
         
         # Run backtest in optimiser mode (returns daily returns and Sharpe)
-        returns, sharpe = backtest(
-            param_grid=chosen,
-            start_date=start_date,
-            end_date=end_date,
-            output=False,
-            optimiser=True
-        )
+        returns, sharpe = backtest(param_grid=chosen,
+                                   start_date=start_date,
+                                   end_date=end_date,
+                                   output=False,
+                                   optimiser=True)
 
         results.append({**chosen, 'Sharpe': sharpe})
 

@@ -5,10 +5,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 
-import sys
-sys.path.append("../../")
-
-from src.utils import backtest, risk
+from src.utils.backtest import backtest
+from src.utils.risk import compute_returns, compute_drawdown, rolling_vol, rolling_sharpe, full_risk_report
 
 app = dash.Dash(__name__)
 server = app.server  # for deployment
@@ -162,9 +160,9 @@ def format_risk_report_table(risk_df: pd.DataFrame) -> html.Div:
             'margin': '20px auto'    # center the whole container
         }
     )
-# -----------------------------
-# CALLBACK
-# -----------------------------
+
+
+# Callback
 @app.callback(
     [Output('equity-graph', 'figure'),
      Output('risk-report-table', 'children')],
@@ -192,7 +190,7 @@ def update_backtest(start_date,
     if not start_date or not end_date:
         return go.Figure(), ""
 
-    # Set up param_grid for your backtest
+    # Set up param_grid
     param_grid = {'long_threshold': long_thresh,
                   'short_threshold': short_thresh,
                   'target_vol': target_vol,
@@ -205,14 +203,14 @@ def update_backtest(start_date,
                   'leverage': leverage}
 
     # Run the backtest
-    strategy_eq, benchmark_eq, rf_series = backtest.backtest(param_grid=param_grid,
-                                                             start_date=start_date,
-                                                             end_date=end_date,
-                                                             sharpe_only=False,
-                                                             output=False,
-                                                             input_loc='../../data/processed/predicted_df.csv',
-                                                             benchmark_loc='../../data/raw/ftse_index.csv',
-                                                             rf_loc='../../data/raw/rf/rf.csv')
+    strategy_eq, benchmark_eq, rf_series = backtest(param_grid=param_grid,
+                                                    start_date=start_date,
+                                                    end_date=end_date,
+                                                    sharpe_only=False,
+                                                    output=False,
+                                                    input_loc='../../data/processed/predicted_df.csv',
+                                                    benchmark_loc='../../data/raw/ftse_index.csv',
+                                                    rf_loc='../../data/raw/rf/rf.csv')
 
     # Compute metrics
     strategy_returns = risk.compute_returns(strategy_eq)

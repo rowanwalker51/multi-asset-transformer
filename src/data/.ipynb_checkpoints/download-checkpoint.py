@@ -1,6 +1,7 @@
+from typing import List
+
 import pandas as pd
 import yfinance as yf
-from typing import List
 
 
 def download_ftse() -> None:
@@ -10,24 +11,22 @@ def download_ftse() -> None:
 
     Notes
     -----
-    - Expects a CSV file '../data/raw/ftse100_tickers.csv' with a 'ticker' column.
-    - Downloads up to 25 years of daily data, adjusted for splits/dividends.
-    - Skips tickers with no data and prints status messages.
+        - Expects a CSV file '../data/raw/ftse100_tickers.csv' with a 'ticker' column.
+        - Downloads up to 25 years of daily data, adjusted for splits/dividends.
+        - Skips tickers with no data and prints status messages.
     """
 
     # Load the full list of tickers
-    all_tickers: List[str] = pd.read_csv('../data/raw/ftse100_tickers.csv')['ticker'].to_list()
+    all_tickers = pd.read_csv('../data/raw/ftse100_tickers.csv')['ticker'].to_list()
 
     for ticker in all_tickers:
         print(f"Downloading {ticker} ...")
 
         # Download price history
-        df = yf.download(
-            ticker,
-            period="25y",
-            interval="1d",
-            auto_adjust=True
-        )
+        df = yf.download(ticker,
+                         period="25y",
+                         interval="1d",
+                         auto_adjust=True)
 
         # Remove multi-index if present
         if isinstance(df.columns, pd.MultiIndex):

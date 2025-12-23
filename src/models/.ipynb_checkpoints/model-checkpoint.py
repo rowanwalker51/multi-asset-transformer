@@ -3,11 +3,13 @@ from typing import Tuple, Optional
 import torch
 import torch.nn as nn
 
-from utils.params import (D_MODEL, N_HEAD, N_LAYERS, N_CLASSES, N_REGIMES, NUM_STOCKS, SEQ_LEN, DROPOUT,
-                          BATCH_SIZE, WEIGHT_DECAY, LR, EPOCHS)
+from src.utils.params import (D_MODEL, N_HEAD, N_LAYERS, N_CLASSES, N_REGIMES, NUM_STOCKS, SEQ_LEN, DROPOUT,
+                              BATCH_SIZE, WEIGHT_DECAY, LR, EPOCHS)
 
 
-def apply_rotary(sin: torch.Tensor, cos: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+def apply_rotary(sin: torch.Tensor, 
+                 cos: torch.Tensor, 
+                 x: torch.Tensor) -> torch.Tensor:
     """
     Apply rotary positional embeddings to the input tensor.
 
@@ -39,13 +41,12 @@ def apply_rotary(sin: torch.Tensor, cos: torch.Tensor, x: torch.Tensor) -> torch
     cos = cos[:T].unsqueeze(0)  # (1, T, half)
 
     # Apply rotation and concatenate halves
-    return torch.cat([
-        x1 * cos - x2 * sin,
-        x1 * sin + x2 * cos
-    ], dim=-1)
+    return torch.cat([x1 * cos - x2 * sin,
+                      x1 * sin + x2 * cos], dim=-1)
 
 
-def build_rope(d_model: int, seq_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def build_rope(d_model: int, 
+               seq_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Construct rotary positional embeddings (RoPE) for a transformer.
 
@@ -91,18 +92,16 @@ class TimeSeriesTransformer(nn.Module):
     Incorporates rotary positional embeddings (RoPE) and a CLS token for classification.
     """
 
-    def __init__(
-        self,
-        feature_dim: int,
-        d_model: int = D_MODEL,
-        nhead: int = N_HEAD,
-        num_layers: int = N_LAYERS,
-        num_classes: int = N_CLASSES,
-        seq_len: int = SEQ_LEN,
-        num_stocks: int = NUM_STOCKS,
-        n_regimes: int = N_REGIMES,
-        dropout: float = DROPOUT
-    ):
+    def __init__(self,
+                 feature_dim: int,
+                 d_model: int = D_MODEL,
+                 nhead: int = N_HEAD,
+                 num_layers: int = N_LAYERS,
+                 num_classes: int = N_CLASSES,
+                 seq_len: int = SEQ_LEN,
+                 num_stocks: int = NUM_STOCKS,
+                 n_regimes: int = N_REGIMES,
+                 dropout: float = DROPOUT):
         super().__init__()
 
         self.seq_len = seq_len
@@ -132,24 +131,22 @@ class TimeSeriesTransformer(nn.Module):
         self.regime_proj = nn.Linear(n_regimes, d_model)
 
         # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=d_model * 4,
-            dropout=dropout,
-            batch_first=True
-        )
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,
+                                                   nhead=nhead,
+                                                   dim_feedforward=d_model * 4,
+                                                   dropout=dropout,
+                                                   batch_first=True)
+        
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
 
-        # Final classification head
+        # Final classification layer
         self.fc = nn.Linear(d_model, num_classes)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        stock_id: torch.Tensor,
-        regime_probs: torch.Tensor
-    ) -> torch.Tensor:
+    
+    def forward(self,
+                x: torch.Tensor,
+                stock_id: torch.Tensor,
+                regime_probs: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of the transformer.
 
@@ -185,7 +182,7 @@ class TimeSeriesTransformer(nn.Module):
         # CLS token regime placeholder
         cls_regime = torch.zeros(B, 1, regime_emb.size(-1), device=x.device)
 
-        # Pre-LayerNorm before adding CLS
+        # Pre-Layer normalisation before adding CLS
         x = self.pre_ln(x)
 
         # Add CLS token

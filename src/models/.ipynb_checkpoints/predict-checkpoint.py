@@ -1,24 +1,20 @@
 from typing import List, Optional
+import time
 
 import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
 
-import sys
-sys.path.append("../")
-
-from models.model import TimeSeriesTransformer
-from utils.params import SEQ_LEN
-
-import time
+from src.models.model import TimeSeriesTransformer
+from src.utils.params import SEQ_LEN
 
 
 def load_model(feature_dim: int,
                hold_days: int,
                path: str = '../results/model/') -> nn.Module:
     """
-    Load a pre-trained TimeSeriesTransformer model from disk.
+    Load a pre-trained TimeSeriesTransformer model.
 
     Parameters
     ----------
@@ -40,9 +36,10 @@ def load_model(feature_dim: int,
 
     # Load trained weights
     checkpoint_path = f'{path}model_{hold_days}.pth'
-    model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
+    model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'), strict=True)
 
-    model.eval()  # Optional: set model to evaluation mode
+    # Set model to evaluation mode
+    model.eval()
 
     return model
 
@@ -53,95 +50,113 @@ def model_prediction(tickers: List[str],
                      hold_days: List[int],
                      n_regimes: int = 3,
                      seq_len: int = SEQ_LEN,
-                     path: str = '../data/processed/',
+                     path: str = "../data/processed/",
+                     batch_size: int = 256,
                      verbose: bool = True) -> None:
     """
     Generate model predictions for multiple tickers and horizons, and save to CSV.
-
+    
     Parameters
     ----------
     tickers : List[str]
-        List of tickers to predict.
+        Asset identifiers corresponding to the Ticker level in full_df.
     full_df : pd.DataFrame
-        Full feature DataFrame indexed by Date and Ticker.
+        Feature DataFrame indexed by Date and Ticker.
     feature_dim : int
-        Number of input features for the model.
+        Number of model input features.
     hold_days : List[int]
-        List of forward horizons to predict.
+        Forward prediction horizons corresponding to saved model checkpoints.
     n_regimes : int, default=3
-        Number of HMM regimes used in the model.
+        Number of HMM regime probability columns.
     seq_len : int, default=SEQ_LEN
-        Length of input sequences.
-    path : str, default='../data/processed/'
-        Path to save the predicted CSV.
+        Length of the rolling input window.
+    path : str, default="../data/processed/"
+        Output directory for the prediction CSV.
+    batch_size : int, default=256,
+        Batch size for inference loop.
     verbose : bool, default=True
-        If True, prints progress and status.
+        Whether to print timing and status information.
+
+    Returns
+    -------
+    None
+        Predictions are written to file.
     """
-    start = time.perf_counter()
+    
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+
+    start_time = time.perf_counter()
+
+    # Identify feature and regime columns
+    regime_cols = [f"Regime_{i}_prob" for i in range(n_regimes)]
+    feature_cols = [c for c in full_df.columns if c not in ["Label", "Ticker"] + regime_cols]
+
+    # Container for prediction DataFrames
     dfs = {}
 
-    # Loop over each prediction horizon
-    for t in hold_days:
-        model = load_model(feature_dim, t)
-        model.eval()  # Ensure evaluation mode
+    # Process each forecast horizon independently
+    for horizon in hold_days:
+        model = load_model(feature_dim, horizon).to(device)
+        model.eval()
 
-        pred_rows = []
+        prediction_rows = []
 
-        # Loop over tickers
+        # Iterate over assets to preserve ticker-specific embeddings
         for ticker_id, ticker in enumerate(tickers):
-            df = full_df.xs(ticker, level='Ticker')
-            
-            # Identify feature columns
-            regime_cols = [f'Regime_{i}_prob' for i in range(n_regimes)]
-            features = [c for c in df.columns if c not in ['Label', 'Ticker'] + regime_cols]
+            df = full_df.xs(ticker, level="Ticker")
 
-            values = df[features].values
+            values = df[feature_cols].values.astype(np.float32)
+            regimes = df[regime_cols].values.astype(np.float32)
 
-            # Generate rolling sequence predictions
-            for i in range(seq_len, len(df)):
-                seq = values[i-seq_len:i]
-                seq = (seq - seq.mean(axis=0)) / np.clip(seq.std(axis=0), 1e-5, None)
+            # Build rolling windows for features and regime probabilities
+            X = np.stack([values[i - seq_len:i] for i in range(seq_len, len(df))])
+            R = np.stack([regimes[i - seq_len:i] for i in range(seq_len, len(df))])
 
-                regime_seq = df[regime_cols].iloc[i-seq_len:i].values.astype(np.float32)
+            # Per-window normalisation to match training-time preprocessing
+            mean = X.mean(axis=1, keepdims=True)
+            std = np.clip(X.std(axis=1, keepdims=True), 1e-5, None)
+            X = (X - mean) / std
 
-                # Convert to torch tensors
-                seq_tensor = torch.tensor(seq, dtype=torch.float32).unsqueeze(0)
-                regime_tensor = torch.tensor(regime_seq, dtype=torch.float32).unsqueeze(0)
-                stock_tensor = torch.tensor([ticker_id], dtype=torch.long)
+            dates = df.index[seq_len:]
 
-                # Model inference
+            # Batched inference
+            for i in range(0, len(X), batch_size):
+                x_batch = torch.from_numpy(X[i:i + batch_size]).to(device)
+                r_batch = torch.from_numpy(R[i:i + batch_size]).to(device)
+
+                s_batch = torch.full((x_batch.size(0),),
+                                     ticker_id,
+                                     dtype=torch.long,
+                                     device=device)
+
                 with torch.inference_mode():
-                    pred = model(seq_tensor, stock_tensor, regime_tensor)
-                    prob_up = torch.softmax(pred, dim=1)[0, 1].item()
+                    logits = model(x_batch, s_batch, r_batch)
+                    probs = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
 
-                # Append prediction row
-                pred_rows.append({
-                    "Date": df.index[i],
-                    "Ticker": ticker,
-                    f"Prediction_{t}": prob_up
-                })
+                # Write batch outputs back to row format
+                for date, prob in zip(dates[i:i + batch_size], probs):
+                    prediction_rows.append({"Date": date,
+                                            "Ticker": ticker,
+                                            f"Prediction_{horizon}": float(prob)})
 
-        # Convert predictions to DataFrame
-        pred_df = pd.DataFrame(pred_rows)
-        pred_df['Date'] = pd.to_datetime(pred_df['Date'])
-        pred_df = pred_df.set_index(['Date', 'Ticker']).sort_index()
+        # Assemble horizon-specific prediction DataFrame
+        dfs[horizon] = (pd.DataFrame(prediction_rows)
+                          .set_index(["Date", "Ticker"])
+                          .sort_index())
 
-        dfs[t] = pred_df
-
-    # Merge all horizons into one DataFrame
+    # Merge all horizon predictions into a single table
     pred_df_full = dfs[hold_days[0]].copy()
-    for t in hold_days[1:]:
-        pred_df_full = pred_df_full.join(dfs[t], how="outer")
+    for horizon in hold_days[1:]:
+        pred_df_full = pred_df_full.join(dfs[horizon], how="outer")
 
-    # Merge with full_df for reference and drop missing values
-    merged = full_df.merge(pred_df_full, on=["Date", "Ticker"], how="left").dropna()
+    # Merge predictions back into the full feature set
+    merged = (full_df.merge(pred_df_full, on=["Date", "Ticker"], how="left")
+                     .dropna())
 
-    # Save to CSV
-    output_path = f'{path}predicted_df.csv'
+    output_path = f"{path}predicted_df.csv"
     merged.to_csv(output_path)
 
-    end = time.perf_counter()
-
     if verbose:
-        print(f'Predicted dataframe saved: {output_path}')
-        print(f"Time taken: {end - start:.2f} seconds")
+        elapsed = time.perf_counter() - start_time
+        print(f"Predicted dataframe saved: {output_path}")
+        print(f"Time taken: {elapsed:.2f} seconds")

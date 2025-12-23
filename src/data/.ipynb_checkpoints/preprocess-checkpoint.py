@@ -1,13 +1,11 @@
 from typing import Dict, List, Tuple
+import warnings
 
 import pandas as pd
 import numpy as np
 from hmmlearn import hmm
 
-import sys
-sys.path.append("../")
-
-from utils.params import NUM_STOCKS, SEQ_LEN
+from src.utils.params import NUM_STOCKS, SEQ_LEN
 
 
 def load_raw_data() -> Dict[str, pd.DataFrame]:
@@ -19,47 +17,35 @@ def load_raw_data() -> Dict[str, pd.DataFrame]:
     renamed to a consistent series identifier (e.g., 'rf', 'ftse'). The function
     does not perform any validation beyond loading and renaming.
     """
-    # Risk-free rate series
-    rf = (
-        pd.read_csv('../data/raw/rf/rf.csv', index_col='Date', parse_dates=True)
-        .rename(columns={'Close': 'rf'})
-    )
+    # Risk-free rate
+    rf = (pd.read_csv('../data/raw/rf/rf.csv', index_col='Date', parse_dates=True)
+            .rename(columns={'Close': 'rf'}))
 
     # FTSE index benchmark
-    ftse = (
-        pd.read_csv('../data/raw/ftse_index.csv', index_col='Date', parse_dates=True)
-        .rename(columns={'Close': 'ftse'})
-    )
+    ftse = (pd.read_csv('../data/raw/ftse_index.csv', index_col='Date', parse_dates=True)
+              .rename(columns={'Close': 'ftse'}))
 
     # FX rates
-    gbp_usd = (
-        pd.read_csv('../data/raw/fx/gbp_usd.csv', index_col='Date', parse_dates=True)
-        .rename(columns={'Close': 'gbp_usd'})
-    )
-    gbp_eur = (
-        pd.read_csv('../data/raw/fx/gbp_eur.csv', index_col='Date', parse_dates=True)
-        .rename(columns={'Close': 'gbp_eur'})
-    )
+    gbp_usd = (pd.read_csv('../data/raw/fx/gbp_usd.csv', index_col='Date', parse_dates=True)
+                 .rename(columns={'Close': 'gbp_usd'}))
+    
+    gbp_eur = (pd.read_csv('../data/raw/fx/gbp_eur.csv', index_col='Date', parse_dates=True)
+                 .rename(columns={'Close': 'gbp_eur'}))
 
     # Commodities
-    gold = (
-        pd.read_csv('../data/raw/commodity/gold.csv', index_col='Date', parse_dates=True)
-        .rename(columns={'Close': 'gold'})
-    )
-    oil = (
-        pd.read_csv('../data/raw/commodity/oil.csv', index_col='Date', parse_dates=True)
-        .rename(columns={'Close': 'oil'})
-    )
+    gold = (pd.read_csv('../data/raw/commodity/gold.csv', index_col='Date', parse_dates=True)
+              .rename(columns={'Close': 'gold'}))
+    
+    oil = (pd.read_csv('../data/raw/commodity/oil.csv', index_col='Date', parse_dates=True)
+             .rename(columns={'Close': 'oil'}))
 
     # Collect into a single mapping
-    data_dict: Dict[str, pd.DataFrame] = {
-        'rf': rf,
-        'ftse': ftse,
-        'gbp_usd': gbp_usd,
-        'gbp_eur': gbp_eur,
-        'gold': gold,
-        'oil': oil,
-    }
+    data_dict: Dict[str, pd.DataFrame] = {'rf': rf,
+                                          'ftse': ftse,
+                                          'gbp_usd': gbp_usd,
+                                          'gbp_eur': gbp_eur,
+                                          'gold': gold,
+                                          'oil': oil,}
 
     return data_dict
 
@@ -76,11 +62,11 @@ def create_features(ticker: str,
     with macro inputs and a range of technical indicators.
 
     The function:
-     - Loads the ticker's price history
-     - Merges external macro series (rf, FTSE index, FX, commodities)
-     - Computes rolling statistical features (returns, volatility, beta)
-     - Builds technical indicators (RSI, moving averages, correlations)
-     - Creates the binary label based on forward returns
+         - Loads the ticker's price history
+         - Merges external macro series (rf, FTSE index, FX, commodities)
+         - Computes rolling statistical features (returns, volatility, beta)
+         - Builds technical indicators (RSI, moving averages, correlations)
+         - Creates the binary label based on forward returns
 
     Parameters
     ----------
@@ -96,26 +82,22 @@ def create_features(ticker: str,
     Returns
     -------
     pd.DataFrame
-        Feature matrix with engineered predictors and the final label column.
+        Feature matrix with predictors and the final label column.
     """
 
     # Load raw price data for the ticker
-    df = pd.read_csv(
-        input_path + f'{ticker}.csv',
-        index_col='Date',
-        parse_dates=True
-    )
+    df = pd.read_csv(input_path + f'{ticker}.csv',
+                     index_col='Date',
+                     parse_dates=True)
 
     # Merge macroeconomic and benchmark inputs
-    df = (
-        df.join(asset_data['rf'][['rf']], how='left')
-          .join(asset_data['ftse'][['ftse']], how='left')
-          .join(asset_data['gbp_usd'][['gbp_usd']], how='left')
-          .join(asset_data['gbp_eur'][['gbp_eur']], how='left')
-          .join(asset_data['gold'][['gold']], how='left')
-          .join(asset_data['oil'][['oil']], how='left')
-          .dropna()
-    )
+    df = (df.join(asset_data['rf'][['rf']], how='left')
+            .join(asset_data['ftse'][['ftse']], how='left')
+            .join(asset_data['gbp_usd'][['gbp_usd']], how='left')
+            .join(asset_data['gbp_eur'][['gbp_eur']], how='left')
+            .join(asset_data['gold'][['gold']], how='left')
+            .join(asset_data['oil'][['oil']], how='left')
+            .dropna())
 
     # Short, medium, long-term windows
     sml = (5, 21, 60)
@@ -165,7 +147,7 @@ def create_features(ticker: str,
         rolling_var = df['Log_return_benchmark'].rolling(w).var()
         df[f'Beta_{w}'] = rolling_cov / rolling_var
 
-    # Clean-up: remove unused columns
+    # Remove unused columns
     df.dropna(inplace=True)
     df.drop(
         columns=[
@@ -199,7 +181,7 @@ def generate_valid_tickers(start_date: str,
 
     valid_tickers: List[str] = []
 
-    # Number of expected trading days in the window (1 year ≈ 252 days)
+    # Number of expected trading days in the window
     min_fill = (pd.to_datetime(end_date).year - pd.to_datetime(start_date).year) * 252
 
     for ticker in all_tickers:
@@ -222,11 +204,11 @@ def hmm_features(path: str = '../data/raw/ftse_index.csv') -> pd.DataFrame:
     Generate technical features for Hidden Markov Model (HMM) regime analysis.
 
     Features include:
-    - Exponentially weighted log returns over multiple windows
-    - Price and volume moving averages
-    - Price-volume correlation
-    - RSI (14-day)
-    - Rolling volatility
+        - Exponentially weighted log returns over multiple windows
+        - Price and volume moving averages
+        - Price-volume correlation
+        - RSI (14-day)
+        - Rolling volatility
 
     Parameters
     ----------
@@ -280,7 +262,8 @@ def hmm_features(path: str = '../data/raw/ftse_index.csv') -> pd.DataFrame:
     return df
 
 
-def hmm_model(df: pd.DataFrame, n_regimes: int) -> pd.DataFrame:
+def hmm_model(df: pd.DataFrame, 
+              n_regimes: int) -> pd.DataFrame:
     """
     Fit a Gaussian Hidden Markov Model (HMM) to the input features and 
     return the posterior probabilities of each regime.
@@ -302,9 +285,9 @@ def hmm_model(df: pd.DataFrame, n_regimes: int) -> pd.DataFrame:
     # Convert to float32 numpy array
     df_hmm = df.values.astype(np.float32)
 
-    # Standardize features (zero mean, unit variance)
+    # Standardise features
     mean = df_hmm.mean(axis=0)
-    std = np.clip(df_hmm.std(axis=0), 1e-5, None)  # avoid division by zero
+    std = np.clip(df_hmm.std(axis=0), 1e-5, None)
     df_hmm_norm = (df_hmm - mean) / std
 
     # Fit Gaussian HMM
@@ -314,9 +297,10 @@ def hmm_model(df: pd.DataFrame, n_regimes: int) -> pd.DataFrame:
         n_iter=10000,
         tol=1e-4
     )
+
     model.fit(df_hmm_norm)
 
-    # Compute posterior probabilities for each regime
+    # Compute probabilities for each regime
     states = model.predict_proba(df_hmm_norm)
 
     # Construct DataFrame with regime probability columns
@@ -326,24 +310,22 @@ def hmm_model(df: pd.DataFrame, n_regimes: int) -> pd.DataFrame:
     return regime_df
 
 
-def generate_model_inputs(
-    tickers: List[str],
-    train_start: str,
-    train_end: str,
-    hold_days: int,
-    n_regimes: int = 3,
-    seq_len: int = SEQ_LEN,
-    verbose: bool = True
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+def generate_model_inputs(tickers: List[str],
+                          train_start: str,
+                          train_end: str,
+                          hold_days: int,
+                          n_regimes: int = 3,
+                          seq_len: int = SEQ_LEN,
+                          verbose: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
     """
     Generate model-ready inputs for sequence-based transformer models.
 
     This function:
-    - Creates features for each ticker using technical indicators and macro data
-    - Computes regime probabilities using HMM
-    - Constructs sequences of features for input into a model
-    - Normalizes features per sequence
-    - Returns full DataFrame for reference
+        - Creates features for each ticker using technical indicators and macro data
+        - Computes regime probabilities using HMM
+        - Constructs sequences of features for input into a model
+        - Normalises features per sequence
+        - Returns full DataFrame for reference
 
     Parameters
     ----------
@@ -377,7 +359,7 @@ def generate_model_inputs(
             Concatenated feature DataFrame for all tickers, indexed by Date and Ticker
     """
 
-    # Containers for sequences, labels, and regime info
+    # Containers for sequences, labels and regime info
     X, y, stock_ids, regime_X = [], [], [], []
     dfs = {}
 
@@ -396,14 +378,14 @@ def generate_model_inputs(
         # Filter to training period
         train_df = df.loc[pd.to_datetime(train_start):pd.to_datetime(train_end)]
 
-        # Determine feature columns (exclude labels, tickers, regime probabilities)
+        # Determine feature columns
         regime_cols = [f'Regime_{i}_prob' for i in range(n_regimes)]
         features = [col for col in train_df.columns if col not in ['Label', 'Ticker'] + regime_cols]
 
         # Construct rolling sequences
         for i in range(train_df.shape[0] - seq_len - hold_days):
             seq = train_df[features].iloc[i:i+seq_len].values
-            # Normalize per sequence
+            # Normalise per sequence
             seq = (seq - seq.mean(axis=0)) / np.clip(seq.std(axis=0), 1e-5, None)
 
             X.append(seq)

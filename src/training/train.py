@@ -1,28 +1,20 @@
 from typing import Optional, List, Dict, Any
 import math
 import time
+import os
 
 import torch
 import torch.nn as nn
+from torch.utils.data import TensorDataset, DataLoader
 import pandas as pd
 import numpy as np
 
-from torch.utils.data import TensorDataset, DataLoader
-
-import sys
-sys.path.append("../")
-
-from utils.params import (D_MODEL, N_HEAD, N_LAYERS, N_CLASSES, NUM_STOCKS, SEQ_LEN, DROPOUT,
-                          BATCH_SIZE, WEIGHT_DECAY, LR, EPOCHS)
-
-from utils.backtest import backtest
-
-from data.preprocess import (create_features,
-                             generate_valid_tickers,
-                             generate_model_inputs)
-
-from models.predict import model_prediction
-from models.model import TimeSeriesTransformer
+from src.utils.params import (D_MODEL, N_HEAD, N_LAYERS, N_CLASSES, NUM_STOCKS, SEQ_LEN, DROPOUT,
+                              BATCH_SIZE, WEIGHT_DECAY, LR, EPOCHS)
+from src.data.preprocess import create_features, generate_valid_tickers, generate_model_inputs
+from src.models.predict import model_prediction
+from src.models.model import TimeSeriesTransformer
+from src.utils.backtest import backtest
 
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -64,7 +56,7 @@ def train_model(X: np.ndarray,
     epochs : int, default=EPOCHS
         Number of training epochs
     device : str, optional
-        Device to train on (e.g., 'cpu' or 'cuda')
+        Device to train on
     path : str, default="../results/model/"
         Directory to save the trained model
     verbose : bool, default=True
@@ -78,8 +70,15 @@ def train_model(X: np.ndarray,
     regime_tensor = torch.tensor(regime_X, dtype=torch.float32)
 
     # Create dataset and loader
-    dataset = TensorDataset(X_tensor, stock_tensor, regime_tensor, y_tensor)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    dataset = TensorDataset(X_tensor, 
+                            stock_tensor, 
+                            regime_tensor, 
+                            y_tensor)
+    
+    loader = DataLoader(dataset, 
+                        batch_size=batch_size, 
+                        num_workers=os.cpu_count(), 
+                        shuffle=True)
 
     # Initialize model, optimizer, and loss function
     model = TimeSeriesTransformer(X.shape[2]).to(device)
@@ -94,7 +93,7 @@ def train_model(X: np.ndarray,
     for epoch in range(1, epochs + 1):
         start = time.perf_counter()
         model.train()
-        total_loss = 0.0
+        total_loss = 0
 
         for xb, stock_id, regime, yb in loader:
             xb, stock_id, regime, yb = xb.to(device), stock_id.to(device), regime.to(device), yb.to(device)
