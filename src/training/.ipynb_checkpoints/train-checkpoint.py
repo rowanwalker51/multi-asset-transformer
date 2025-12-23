@@ -9,12 +9,17 @@ from torch.utils.data import TensorDataset, DataLoader
 import pandas as pd
 import numpy as np
 
-from src.utils.params import (D_MODEL, N_HEAD, N_LAYERS, N_CLASSES, NUM_STOCKS, SEQ_LEN, DROPOUT,
-                              BATCH_SIZE, WEIGHT_DECAY, LR, EPOCHS)
 from src.data.preprocess import create_features, generate_valid_tickers, generate_model_inputs
 from src.models.predict import model_prediction
 from src.models.model import TimeSeriesTransformer
 from src.utils.backtest import backtest
+from src.common.config import CommonConfig, load_yaml, get_config_path
+from src.training.config import TrainingConfig
+
+
+# Load YAML files
+common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
+train_cfg = TrainingConfig(**load_yaml(get_config_path("training.yaml"))["training"])
 
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -25,10 +30,10 @@ def train_model(X: np.ndarray,
                 stock_ids: np.ndarray,
                 regime_X: np.ndarray,
                 hold_days: int,
-                batch_size: int = BATCH_SIZE,
-                weight_decay: float = WEIGHT_DECAY,
-                lr: float = LR,
-                epochs: int = EPOCHS,
+                batch_size: int = train_cfg.batch_size,
+                weight_decay: float = train_cfg.weight_decay,
+                lr: float = train_cfg.lr,
+                epochs: int = train_cfg.epochs,
                 device: Optional[str] = device,
                 path: str = "../results/model/",
                 verbose: bool = True) -> None:
@@ -168,8 +173,8 @@ def walk_forward_validation(param_grid: Dict[str, Any],
                             end: str = '2025-11-20',
                             train_length: int = 5,
                             test_length: int = 1,
-                            num_stocks: int = NUM_STOCKS,
-                            seq_len: int = SEQ_LEN) -> pd.DataFrame:
+                            num_stocks: int = common_cfg.num_stocks,
+                            seq_len: int = common_cfg.seq_len) -> pd.DataFrame:
     """
     Perform walk-forward validation for a trading model using sequential train/test splits.
 

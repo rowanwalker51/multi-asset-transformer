@@ -18,7 +18,6 @@ def compute_log_returns(prices: pd.Series) -> pd.Series:
     return np.log(prices / prices.shift(1)).dropna()
 
 
-
 # Volatility and Ratios
 
 def annualized_vol(returns: pd.Series, periods: int = 252) -> float:
@@ -44,7 +43,6 @@ def sortino_ratio(returns: pd.Series, rf: pd.Series, periods: int = 252) -> floa
     return mean_excess / downside_std * np.sqrt(periods)
 
 
-
 # Drawdown Metrics
 
 def compute_drawdown(equity: pd.Series) -> pd.Series:
@@ -64,7 +62,6 @@ def drawdown_duration(equity: pd.Series) -> int:
     dd = equity / equity.cummax() - 1
     durations = (dd != 0).astype(int)
     return durations.groupby((durations != durations.shift()).cumsum()).sum().max()
-
 
 
 # Trade Statistics
@@ -95,7 +92,6 @@ def tail_ratio(returns: pd.Series) -> float:
     return top5 / bottom5 if bottom5 != 0 else np.nan
 
 
-
 # Value at Risk (VaR) / CVaR
 
 def var_historical(returns: pd.Series, level: float = 0.05) -> float:
@@ -122,7 +118,6 @@ def var_cornish_fisher(returns: pd.Series, level: float = 0.05) -> float:
 def cvar_historical(returns: pd.Series, level: float = 0.05) -> float:
     v = var_historical(returns, level)
     return returns[returns < v].mean()
-
 
 
 # Alpha / Beta Calculation
@@ -167,7 +162,6 @@ def rolling_sharpe(returns: pd.Series, window: int = 60) -> pd.Series:
 
 def rolling_vol(returns: pd.Series, window: int = 60) -> pd.Series:
     return returns.rolling(window).std() * np.sqrt(252)
-
 
 
 # Full Risk Report

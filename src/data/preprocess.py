@@ -1,11 +1,14 @@
 from typing import Dict, List, Tuple
-import warnings
 
 import pandas as pd
 import numpy as np
 from hmmlearn import hmm
 
-from src.utils.params import NUM_STOCKS, SEQ_LEN
+from src.common.config import CommonConfig, load_yaml, get_config_path
+
+
+# Load YAML files
+common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
 
 
 def load_raw_data() -> Dict[str, pd.DataFrame]:
@@ -167,7 +170,7 @@ def create_features(ticker: str,
 
 def generate_valid_tickers(start_date: str,
                            end_date: str,
-                           num_stocks: int = NUM_STOCKS,
+                           num_stocks: int = common_cfg.num_stocks,
                            all_tickers_path: str = '../data/raw/ftse100_tickers.csv') -> List[str]:
     """
     Return a list of tickers that have sufficient historical data 
@@ -291,12 +294,10 @@ def hmm_model(df: pd.DataFrame,
     df_hmm_norm = (df_hmm - mean) / std
 
     # Fit Gaussian HMM
-    model = hmm.GaussianHMM(
-        n_components=n_regimes,
-        covariance_type="full",
-        n_iter=10000,
-        tol=1e-4
-    )
+    model = hmm.GaussianHMM(n_components=n_regimes,
+                            covariance_type="full",
+                            n_iter=10000,
+                            tol=1e-4)
 
     model.fit(df_hmm_norm)
 
@@ -315,7 +316,7 @@ def generate_model_inputs(tickers: List[str],
                           train_end: str,
                           hold_days: int,
                           n_regimes: int = 3,
-                          seq_len: int = SEQ_LEN,
+                          seq_len: int = common_cfg.seq_len,
                           verbose: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
     """
     Generate model-ready inputs for sequence-based transformer models.
@@ -339,7 +340,7 @@ def generate_model_inputs(tickers: List[str],
         Forward horizon to define the target label.
     n_regimes : int, default=3
         Number of HMM regimes.
-    seq_len : int, default=SEQ_LEN
+    seq_len : int, default=common_cfg.seq_len
         Length of input sequences for the model.
     verbose : bool, default=True
         If True, prints dataset summary.

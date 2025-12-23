@@ -3,8 +3,13 @@ from typing import Tuple, Optional
 import torch
 import torch.nn as nn
 
-from src.utils.params import (D_MODEL, N_HEAD, N_LAYERS, N_CLASSES, N_REGIMES, NUM_STOCKS, SEQ_LEN, DROPOUT,
-                              BATCH_SIZE, WEIGHT_DECAY, LR, EPOCHS)
+from src.common.config import CommonConfig, load_yaml, get_config_path
+from src.models.config import ModelConfig
+
+
+# Load YAML files
+common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
+model_cfg = ModelConfig(**load_yaml(get_config_path("model.yaml"))["model"])
 
 
 def apply_rotary(sin: torch.Tensor, 
@@ -94,14 +99,14 @@ class TimeSeriesTransformer(nn.Module):
 
     def __init__(self,
                  feature_dim: int,
-                 d_model: int = D_MODEL,
-                 nhead: int = N_HEAD,
-                 num_layers: int = N_LAYERS,
-                 num_classes: int = N_CLASSES,
-                 seq_len: int = SEQ_LEN,
-                 num_stocks: int = NUM_STOCKS,
-                 n_regimes: int = N_REGIMES,
-                 dropout: float = DROPOUT):
+                 d_model: int = model_cfg.d_model,
+                 nhead: int = model_cfg.n_head,
+                 num_layers: int = model_cfg.n_layers,
+                 num_classes: int = model_cfg.n_classes,
+                 seq_len: int = common_cfg.seq_len,
+                 num_stocks: int = common_cfg.num_stocks,
+                 n_regimes: int = common_cfg.n_regimes,
+                 dropout: float = model_cfg.dropout):
         super().__init__()
 
         self.seq_len = seq_len

@@ -7,7 +7,14 @@ import numpy as np
 import pandas as pd
 
 from src.models.model import TimeSeriesTransformer
-from src.utils.params import SEQ_LEN
+from src.common.config import CommonConfig, load_yaml, get_config_path
+
+
+# Load YAML files
+common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
+
+    
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 
 def load_model(feature_dim: int,
@@ -48,8 +55,8 @@ def model_prediction(tickers: List[str],
                      full_df: pd.DataFrame,
                      feature_dim: int,
                      hold_days: List[int],
-                     n_regimes: int = 3,
-                     seq_len: int = SEQ_LEN,
+                     n_regimes: int = common_cfg.n_regimes,
+                     seq_len: int = common_cfg.seq_len,
                      path: str = "../data/processed/",
                      batch_size: int = 256,
                      verbose: bool = True) -> None:
@@ -82,8 +89,6 @@ def model_prediction(tickers: List[str],
     None
         Predictions are written to file.
     """
-    
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     start_time = time.perf_counter()
 
