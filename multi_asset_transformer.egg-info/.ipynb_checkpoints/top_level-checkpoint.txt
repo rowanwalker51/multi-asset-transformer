@@ -1,4 +1,0 @@
-data
-notebooks
-results
-src

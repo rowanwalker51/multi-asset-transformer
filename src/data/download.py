@@ -3,21 +3,27 @@ from typing import List
 import pandas as pd
 import yfinance as yf
 
+from src.data.config import load_data_config
+
+
+data_cfg = load_data_config("../configs/data.yaml")
+
 
 def download_ftse() -> None:
     """
     Download historical daily price data for all FTSE 100 constituents from Yahoo Finance
-    and save each ticker as a CSV file in ../data/raw/ftse/.
+    and save each ticker as a parquet file.
 
     Notes
     -----
-        - Expects a CSV file '../data/raw/ftse100_tickers.csv' with a 'ticker' column.
+        - Expects a parquet file with a 'ticker' column.
         - Downloads up to 25 years of daily data, adjusted for splits/dividends.
         - Skips tickers with no data and prints status messages.
     """
 
     # Load the full list of tickers
-    all_tickers = pd.read_csv('../data/raw/ftse100_tickers.csv')['ticker'].to_list()
+    all_tickers_path = data_cfg['paths']['raw']['all_tickers']
+    all_tickers = pd.read_parquet(all_tickers_path)['ticker'].to_list()
 
     for ticker in all_tickers:
         print(f"Downloading {ticker} ...")
@@ -38,5 +44,6 @@ def download_ftse() -> None:
             print(f"No data for {ticker}, skipping.")
             continue
 
-        # Save CSV
-        df.to_csv(f"../data/raw/ftse/{ticker}.csv")
+        # Save parquet
+        ticker_save_path = data_cfg['paths']['raw']['ftse']
+        df.to_parquet(ticker_save_path / f'{ticker}.parquet')

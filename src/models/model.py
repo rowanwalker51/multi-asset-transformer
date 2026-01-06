@@ -46,8 +46,7 @@ def apply_rotary(sin: torch.Tensor,
     cos = cos[:T].unsqueeze(0)  # (1, T, half)
 
     # Apply rotation and concatenate halves
-    return torch.cat([x1 * cos - x2 * sin,
-                      x1 * sin + x2 * cos], dim=-1)
+    return torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
 
 
 def build_rope(d_model: int, 
@@ -140,12 +139,16 @@ class TimeSeriesTransformer(nn.Module):
                                                    nhead=nhead,
                                                    dim_feedforward=d_model * 4,
                                                    dropout=dropout,
-                                                   batch_first=True)
+                                                   batch_first=True,
+                                                   norm_first=True)
         
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
 
         # Final classification layer
-        self.fc = nn.Linear(d_model, num_classes)
+        self.fc_head = nn.Sequential(nn.LayerNorm(d_model),
+                                     nn.Linear(d_model, d_model // 2),
+                                     nn.GELU(),
+                                     nn.Linear(d_model // 2, num_classes))
 
     
     def forward(self,
@@ -184,7 +187,7 @@ class TimeSeriesTransformer(nn.Module):
         # Regime embedding
         regime_emb = self.regime_proj(regime_probs)  # (B, T, d_model)
 
-        # CLS token regime placeholder
+        # CLS token regime placeholder for shape consistency
         cls_regime = torch.zeros(B, 1, regime_emb.size(-1), device=x.device)
 
         # Pre-Layer normalisation before adding CLS
@@ -198,18 +201,31 @@ class TimeSeriesTransformer(nn.Module):
         regime_emb = torch.cat([cls_regime, regime_emb], dim=1)  # (B, T+1, d_model)
         x = x + regime_emb
 
-        # Apply rotary positional embeddings
-        sin = self.rope_sin[:T+1]
-        cos = self.rope_cos[:T+1]
-        x = apply_rotary(sin, cos, x)
+        # Apply rotary positional embeddings excluding CLS
+        cls, seq = x[:, :1], x[:, 1:]
+
+        sin = self.rope_sin[:T]
+        cos = self.rope_cos[:T]
+
+        seq = apply_rotary(sin, cos, seq)
+        x = torch.cat([cls, seq], dim=1)
 
         # Dropout
         x = self.dropout(x)
 
-        # Transformer encoder
-        x = self.transformer(x)
+        # Setting up causal mask
+        mask = torch.triu(
+            torch.ones(T+1, T+1, device=x.device),
+            diagonal=1
+        ).bool()
+        
+        # CLS attends to everything
+        mask[0, :] = False
+
+        # Transformer
+        x = self.transformer(x, mask=mask)
 
         # Use CLS token output for classification
         cls_out = x[:, 0, :]
 
-        return self.fc(cls_out)
+        return self.fc_head(cls_out)

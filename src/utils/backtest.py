@@ -5,12 +5,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from src.utils.risk import compute_returns, sharpe_ratio, compute_alpha_beta
+from src.data.config import load_data_config
+
+
+# Load YAML files
+data_cfg = load_data_config("../configs/data.yaml")
 
 
 def add_signal(long_threshold: float,
                short_threshold: float,
-               horizons: Sequence[int] = (1, 5, 21),
-               input_loc: str = '../data/processed/predicted_df.csv') -> pd.DataFrame:
+               horizons: Sequence[int] = (1, 5, 21)) -> pd.DataFrame:
     """
     Generate trading signals based on ensemble ranking of model predictions.
 
@@ -22,8 +26,6 @@ def add_signal(long_threshold: float,
         Threshold below which a short position (-1) is taken.
     horizons : Sequence[int], default=(1,5,21)
         List of prediction horizons to include in ensemble ranking.
-    input_loc : str, default='../data/processed/predicted_df.csv'
-        Path to the CSV file containing model predictions.
 
     Returns
     -------
@@ -32,9 +34,9 @@ def add_signal(long_threshold: float,
         - Ensemble ranking
         - Position (-1, 0, 1) based on thresholds
     """
-
     # Load predicted probabilities
-    df = pd.read_csv(input_loc)
+    input_path = data_cfg['paths']['inference']
+    df = pd.read_parquet(input_path)
 
     # Compute rank within each date for each horizon
     for h in horizons:
@@ -44,7 +46,7 @@ def add_signal(long_threshold: float,
     df["Ensemble"] = df[[f"Rank_{h}" for h in horizons]].mean(axis=1)
 
     # Set MultiIndex for alignment
-    df = df.set_index(['Date', 'Ticker']).sort_index()
+    #df = df.set_index(['Date', 'Ticker']).sort_index()
 
     # Initialize positions
     df['Position'] = 0
@@ -152,10 +154,7 @@ def backtest(param_grid: Dict[str, float],
              initial_equity: float = 1000,
              sharpe_only: bool = False,
              output: bool = True,
-             optimiser: bool = False,
-             input_loc: str = '../data/processed/predicted_df.csv',
-             benchmark_loc: str = '../data/raw/ftse_index.csv',
-             rf_loc: str = '../data/raw/rf/rf.csv') -> Union[float, Tuple[pd.Series, pd.Series, pd.Series], Tuple[pd.Series, float]]:
+             optimiser: bool = False) -> Union[float, Tuple[pd.Series, pd.Series, pd.Series], Tuple[pd.Series, float]]:
     """
     Perform a backtest of a signal-based trading strategy with risk management rules.
 
@@ -201,8 +200,7 @@ def backtest(param_grid: Dict[str, float],
 
     # Generate trading signals
     df = add_signal(long_threshold=long_threshold, 
-                    short_threshold=short_threshold,
-                    input_loc=input_loc)
+                    short_threshold=short_threshold)
     df = df.loc[start_date:end_date]
 
     # Prepare prices and position matrices
@@ -282,9 +280,14 @@ def backtest(param_grid: Dict[str, float],
     equity_df.index = pd.to_datetime(equity_df.index)
 
     # Benchmark & risk-free
-    benchmark = pd.read_csv(benchmark_loc, index_col='Date', parse_dates=True)[['Close']]
+    benchmark_path = data_cfg['paths']['raw']['index']
+    benchmark = pd.read_parquet(benchmark_path).set_index('Date')[['Close']]
     benchmark.columns = ['Benchmark_Close']
-    rf = pd.read_csv(rf_loc, index_col='Date', parse_dates=True).rename(columns={'Close':'rf'})
+    benchmark.index = pd.to_datetime(benchmark.index)
+
+    rf_path = data_cfg['paths']['raw']['rf']['rf']
+    rf = pd.read_parquet(rf_path).set_index('Date').rename(columns={'Close':'rf'})
+    rf.index = pd.to_datetime(rf.index)
 
     equity_df = equity_df.join(benchmark, how='left').join(rf, how='left')
     equity_df["Benchmark_Equity"] = (1 + equity_df["Benchmark_Close"].pct_change(fill_method=None)).cumprod() * initial_equity

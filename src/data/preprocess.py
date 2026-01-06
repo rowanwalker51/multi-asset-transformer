@@ -1,14 +1,17 @@
 from typing import Dict, List, Tuple
+import time
 
 import pandas as pd
 import numpy as np
 from hmmlearn import hmm
 
 from src.common.config import CommonConfig, load_yaml, get_config_path
+from src.data.config import load_data_config
 
 
 # Load YAML files
 common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
+data_cfg = load_data_config("../configs/data.yaml")
 
 
 def load_raw_data() -> Dict[str, pd.DataFrame]:
@@ -16,50 +19,67 @@ def load_raw_data() -> Dict[str, pd.DataFrame]:
     Load raw market and macro datasets from disk and return them as a 
     dictionary of DataFrames.
 
-    Each CSV is expected to have a Date index and a 'Close' column, which is
+    Each parquet is expected to have a Date index and a 'Close' column, which is
     renamed to a consistent series identifier (e.g., 'rf', 'ftse'). The function
     does not perform any validation beyond loading and renaming.
     """
+    raw_paths = data_cfg['paths']['raw']
+    
     # Risk-free rate
-    rf = (pd.read_csv('../data/raw/rf/rf.csv', index_col='Date', parse_dates=True)
-            .rename(columns={'Close': 'rf'}))
+    rf_path = raw_paths['rf']['rf']
+    rf = (pd.read_parquet(rf_path)
+            .rename(columns={'Close': 'rf'})
+            .set_index('Date'))
+    rf.index = pd.to_datetime(rf.index)
 
     # FTSE index benchmark
-    ftse = (pd.read_csv('../data/raw/ftse_index.csv', index_col='Date', parse_dates=True)
-              .rename(columns={'Close': 'ftse'}))
+    index_path = raw_paths['index']
+    ftse = (pd.read_parquet(index_path)
+              .rename(columns={'Close': 'ftse'})
+              .set_index('Date'))
+    ftse.index = pd.to_datetime(ftse.index)
 
     # FX rates
-    gbp_usd = (pd.read_csv('../data/raw/fx/gbp_usd.csv', index_col='Date', parse_dates=True)
-                 .rename(columns={'Close': 'gbp_usd'}))
+    gbp_usd_path = raw_paths['fx']['gbp_usd']
+    gbp_usd = (pd.read_parquet(gbp_usd_path)
+                 .rename(columns={'Close': 'gbp_usd'})
+                 .set_index('Date'))
+    gbp_usd.index = pd.to_datetime(gbp_usd.index)
     
-    gbp_eur = (pd.read_csv('../data/raw/fx/gbp_eur.csv', index_col='Date', parse_dates=True)
-                 .rename(columns={'Close': 'gbp_eur'}))
-
+    gbp_eur_path = raw_paths['fx']['gbp_eur']
+    gbp_eur = (pd.read_parquet(gbp_eur_path)
+                 .rename(columns={'Close': 'gbp_eur'})
+                 .set_index('Date'))
+    gbp_eur.index = pd.to_datetime(gbp_eur.index)
+    
     # Commodities
-    gold = (pd.read_csv('../data/raw/commodity/gold.csv', index_col='Date', parse_dates=True)
-              .rename(columns={'Close': 'gold'}))
+    gold_path = raw_paths['commodities']['gold']
+    gold = (pd.read_parquet(gold_path)
+              .rename(columns={'Close': 'gold'})
+              .set_index('Date'))
+    gold.index = pd.to_datetime(gold.index)
     
-    oil = (pd.read_csv('../data/raw/commodity/oil.csv', index_col='Date', parse_dates=True)
-             .rename(columns={'Close': 'oil'}))
-
+    oil_path = raw_paths['commodities']['oil']
+    oil = (pd.read_parquet(oil_path)
+             .rename(columns={'Close': 'oil'})
+             .set_index('Date'))
+    oil.index = pd.to_datetime(oil.index)
+    
     # Collect into a single mapping
-    data_dict: Dict[str, pd.DataFrame] = {'rf': rf,
-                                          'ftse': ftse,
-                                          'gbp_usd': gbp_usd,
-                                          'gbp_eur': gbp_eur,
-                                          'gold': gold,
-                                          'oil': oil,}
+    data_dict = {
+        'rf': rf,
+        'ftse': ftse,
+        'gbp_usd': gbp_usd,
+        'gbp_eur': gbp_eur,
+        'gold': gold,
+        'oil': oil
+    }
 
     return data_dict
 
 
-asset_data=load_raw_data()
-
-
 def create_features(ticker: str,
-                    hold_days: int,
-                    asset_data: Dict[str, pd.DataFrame] = asset_data,
-                    input_path: str = '../data/raw/ftse/') -> pd.DataFrame:
+                    hold_days: int) -> pd.DataFrame:
     """
     Build the full feature set for a single ticker by combining its price series
     with macro inputs and a range of technical indicators.
@@ -77,33 +97,28 @@ def create_features(ticker: str,
         The equity ticker to process.
     hold_days : int
         Forward return horizon used to generate the classification label.
-    asset_data : Dict[str, pd.DataFrame]
-        Preloaded macro and market datasets keyed by name.
-    input_path : str
-        Directory containing individual ticker CSV files.
 
     Returns
     -------
     pd.DataFrame
         Feature matrix with predictors and the final label column.
     """
-
+    # FTSE index benchmark
+    index_path = data_cfg['paths']['raw']['index']
+    ftse = (pd.read_parquet(index_path)
+              .rename(columns={'Close': 'ftse'})
+              .set_index('Date'))
+    ftse.index = pd.to_datetime(ftse.index)
+    
     # Load raw price data for the ticker
-    df = pd.read_csv(input_path + f'{ticker}.csv',
-                     index_col='Date',
-                     parse_dates=True)
-
-    # Merge macroeconomic and benchmark inputs
-    df = (df.join(asset_data['rf'][['rf']], how='left')
-            .join(asset_data['ftse'][['ftse']], how='left')
-            .join(asset_data['gbp_usd'][['gbp_usd']], how='left')
-            .join(asset_data['gbp_eur'][['gbp_eur']], how='left')
-            .join(asset_data['gold'][['gold']], how='left')
-            .join(asset_data['oil'][['oil']], how='left')
-            .dropna())
+    input_path = data_cfg['paths']['raw']['ftse']
+    df = pd.read_parquet(input_path / f'{ticker}.parquet')
+    df.index = pd.to_datetime(df.index)
 
     # Short, medium, long-term windows
     sml = (5, 21, 60)
+
+    df = df.join(ftse[['ftse']], how='left')
 
     # Forward returns and label
     df[f'Return_{hold_days}d'] = df['Close'].pct_change(hold_days).shift(-hold_days)
@@ -170,8 +185,7 @@ def create_features(ticker: str,
 
 def generate_valid_tickers(start_date: str,
                            end_date: str,
-                           num_stocks: int = common_cfg.num_stocks,
-                           all_tickers_path: str = '../data/raw/ftse100_tickers.csv') -> List[str]:
+                           num_stocks: int = common_cfg.num_stocks) -> List[str]:
     """
     Return a list of tickers that have sufficient historical data 
     between `start_date` and `end_date`.
@@ -180,20 +194,21 @@ def generate_valid_tickers(start_date: str,
     adequate number of observations within the date window.
     """
     # Load full FTSE ticker list
-    all_tickers = pd.read_csv(all_tickers_path)['ticker'].to_list()
+    all_tickers_path = data_cfg['paths']['raw']['all_tickers']
+    all_tickers = pd.read_parquet(all_tickers_path)['ticker'].to_list()
 
     valid_tickers: List[str] = []
 
     # Number of expected trading days in the window
     min_fill = (pd.to_datetime(end_date).year - pd.to_datetime(start_date).year) * 252
 
+    ticker_data_path = data_cfg['paths']['raw']['ftse']
+    
     for ticker in all_tickers:
         # Load individual price series
-        df = pd.read_csv(
-            f'../data/raw/ftse/{ticker}.csv',
-            index_col='Date',
-            parse_dates=True
-        )
+        df = pd.read_parquet(ticker_data_path / f'{ticker}.parquet')
+
+        df.index = pd.to_datetime(df.index)
 
         # Check if the ticker has enough data in the date range
         if len(df.loc[start_date:end_date]) > min_fill:
@@ -202,7 +217,7 @@ def generate_valid_tickers(start_date: str,
     return valid_tickers[:num_stocks]
 
 
-def hmm_features(path: str = '../data/raw/ftse_index.csv') -> pd.DataFrame:
+def hmm_features() -> pd.DataFrame:
     """
     Generate technical features for Hidden Markov Model (HMM) regime analysis.
 
@@ -213,20 +228,16 @@ def hmm_features(path: str = '../data/raw/ftse_index.csv') -> pd.DataFrame:
         - RSI (14-day)
         - Rolling volatility
 
-    Parameters
-    ----------
-    path : str
-        Path to the FTSE index CSV file. The file must have a Date index
-        and columns: ['Open', 'High', 'Low', 'Close', 'Volume'].
-
     Returns
     -------
     pd.DataFrame
         DataFrame containing the engineered features, indexed by Date.
     """
-
+    path = data_cfg['paths']['raw']['index']
+    
     # Load price data
-    df = pd.read_csv(path, index_col='Date', parse_dates=True)
+    df = pd.read_parquet(path).set_index('Date')
+    df.index = pd.to_datetime(df.index)
 
     # Define short, medium, long-term windows
     sml = (5, 21, 60)
@@ -311,108 +322,106 @@ def hmm_model(df: pd.DataFrame,
     return regime_df
 
 
-def generate_model_inputs(tickers: List[str],
-                          train_start: str,
-                          train_end: str,
-                          hold_days: int,
-                          n_regimes: int = 3,
-                          seq_len: int = common_cfg.seq_len,
-                          verbose: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+def generate_model_inputs(
+    tickers: List[str],
+    train_start: str,
+    train_end: str,
+    hold_days: int,
+    n_regimes: int = common_cfg.n_regimes,
+    seq_len: int = common_cfg.seq_len,
+    verbose: bool = True
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
     """
     Generate model-ready inputs for sequence-based transformer models.
 
-    This function:
-        - Creates features for each ticker using technical indicators and macro data
-        - Computes regime probabilities using HMM
-        - Constructs sequences of features for input into a model
-        - Normalises features per sequence
-        - Returns full DataFrame for reference
-
-    Parameters
-    ----------
-    tickers : List[str]
-        List of equity tickers to process.
-    train_start : str
-        Start date for training data (YYYY-MM-DD).
-    train_end : str
-        End date for training data (YYYY-MM-DD).
-    hold_days : int
-        Forward horizon to define the target label.
-    n_regimes : int, default=3
-        Number of HMM regimes.
-    seq_len : int, default=common_cfg.seq_len
-        Length of input sequences for the model.
-    verbose : bool, default=True
-        If True, prints dataset summary.
-
     Returns
     -------
-    Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]
-        X : np.ndarray
-            Input sequences of shape (num_samples, seq_len, num_features)
-        y : np.ndarray
-            Target labels of shape (num_samples,)
-        stock_ids : np.ndarray
-            Stock identifier per sample
-        regime_X : np.ndarray
-            Sequence of regime probabilities of shape (num_samples, seq_len, n_regimes)
-        full_df : pd.DataFrame
-            Concatenated feature DataFrame for all tickers, indexed by Date and Ticker
+    X : np.ndarray
+        Shape (num_samples, seq_len, num_features)
+    y : np.ndarray
+        Shape (num_samples,)
+    stock_ids : np.ndarray
+        Shape (num_samples,)
+    regime_X : np.ndarray
+        Shape (num_samples, seq_len, n_regimes)
+    full_df : pd.DataFrame
+        Full feature DataFrame indexed by (Date, Ticker)
     """
+    start = time.perf_counter()
 
-    # Containers for sequences, labels and regime info
     X, y, stock_ids, regime_X = [], [], [], []
     dfs = {}
 
-    # Generate regime probabilities once for all tickers
-    regime_df = hmm_model(hmm_features(), n_regimes)
-
-    for ticker_id, ticker in enumerate(tickers):
-        # Create features per ticker
+    # Build per-ticker features
+    for ticker in tickers:
         df = create_features(ticker, hold_days)
-
-        # Merge regime probabilities
-        df = df.join(regime_df, how='left')
-        df['Ticker'] = ticker
+        df["Ticker"] = ticker
         dfs[ticker] = df
 
-        # Filter to training period
-        train_df = df.loc[pd.to_datetime(train_start):pd.to_datetime(train_end)]
+    full_df = pd.concat(dfs.values())
 
-        # Determine feature columns
-        regime_cols = [f'Regime_{i}_prob' for i in range(n_regimes)]
-        features = [col for col in train_df.columns if col not in ['Label', 'Ticker'] + regime_cols]
+    # Add macro + regime features before sequencing
+    regime_df = hmm_model(hmm_features(), n_regimes)
+    asset_data = load_raw_data()
 
-        # Construct rolling sequences
-        for i in range(train_df.shape[0] - seq_len - hold_days):
-            seq = train_df[features].iloc[i:i+seq_len].values
-            # Normalise per sequence
+    full_df = (
+        full_df
+        .join(asset_data["rf"][["rf"]], how="left")
+        .join(asset_data["gbp_usd"][["gbp_usd"]], how="left")
+        .join(asset_data["gbp_eur"][["gbp_eur"]], how="left")
+        .join(asset_data["gold"][["gold"]], how="left")
+        .join(asset_data["oil"][["oil"]], how="left")
+        .dropna()
+    )
+
+    full_df = full_df.join(regime_df, how='left')
+
+    full_df = full_df.set_index(["Ticker"], append=True).sort_index()
+
+    # Build sequences
+    regime_cols = [f"Regime_{i}_prob" for i in range(n_regimes)]
+
+    for ticker_id, ticker in enumerate(tickers):
+        ticker_df = full_df.xs(ticker, level="Ticker")
+        train_df = ticker_df.loc[train_start:train_end]
+
+        feature_cols = [
+            c for c in train_df.columns
+            if c not in regime_cols + ["Label"]
+        ]
+
+        for i in range(len(train_df) - seq_len - hold_days):
+            seq = train_df[feature_cols].iloc[i:i + seq_len].values
             seq = (seq - seq.mean(axis=0)) / np.clip(seq.std(axis=0), 1e-5, None)
 
             X.append(seq)
-            y.append(train_df['Label'].iloc[i + seq_len + hold_days - 1])
+            y.append(train_df["Label"].iloc[i + seq_len + hold_days - 1])
             stock_ids.append(ticker_id)
+            regime_X.append(train_df[regime_cols].iloc[i:i + seq_len].values)
 
-            regime_seq = train_df[regime_cols].iloc[i:i+seq_len].values
-            regime_X.append(regime_seq)
+    # Convert to arrays
+    X = np.asarray(X, dtype=np.float32)
+    y = np.asarray(y, dtype=np.int64)
+    stock_ids = np.asarray(stock_ids, dtype=np.int64)
+    regime_X = np.asarray(regime_X, dtype=np.float32)
 
-    # Convert lists to numpy arrays
-    X = np.array(X, dtype=np.float32)
-    y = np.array(y, dtype=np.int64)
-    stock_ids = np.array(stock_ids, dtype=np.int64)
-    regime_X = np.array(regime_X, dtype=np.float32)
+    # Save features
+    feature_path = data_cfg["paths"]["processed"]
+    file_name = f'processed_{hold_days}.parquet'
+    full_df.to_parquet(feature_path / file_name)
 
-    # Full concatenated DataFrame
-    full_df = pd.concat(dfs.values())
-    full_df = full_df.set_index(['Ticker'], append=True).sort_index()
-    full_df = full_df.loc[train_start:]
+    # Sanity checks
+    assert X.shape[0] == y.shape[0] == stock_ids.shape[0] == regime_X.shape[0]
+    assert X.shape[1] == seq_len
+    assert regime_X.shape[2] == n_regimes
 
-    # Summary output
     if verbose:
-        print('Load successful:')
-        print('~~~~~~~~~~~~~~~~~~~~~~')
-        print(f'Number of rows: {X.shape[0]}')
-        print(f'Number of features: {X.shape[2]}')
-        print(f'Number of stocks: {len(np.unique(stock_ids))}')
+        elapsed = time.perf_counter() - start
+        print("Load successful")
+        print("----------------")
+        print(f"Time taken: {elapsed:.2f}s")
+        print(f"Samples: {X.shape[0]}")
+        print(f"Features: {X.shape[2]}")
+        print(f"Stocks: {len(set(stock_ids))}")
 
     return X, y, stock_ids, regime_X, full_df

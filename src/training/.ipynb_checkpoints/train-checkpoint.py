@@ -6,11 +6,12 @@ import os
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
+from torch.optim.lr_scheduler import LambdaLR
 import pandas as pd
 import numpy as np
 
 from src.data.preprocess import create_features, generate_valid_tickers, generate_model_inputs
-from src.models.predict import model_prediction
+from src.inference.inference import model_inference
 from src.models.model import TimeSeriesTransformer
 from src.utils.backtest import backtest
 from src.common.config import CommonConfig, load_yaml, get_config_path
@@ -87,7 +88,39 @@ def train_model(X: np.ndarray,
 
     # Initialize model, optimizer, and loss function
     model = TimeSeriesTransformer(X.shape[2]).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+    # Optimiser with weight decay
+    decay, no_decay = [], []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if name.endswith("bias") or "norm" in name.lower():
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": decay, "weight_decay": weight_decay},
+            {"params": no_decay, "weight_decay": 0.0},
+        ],
+        lr=lr
+    )
+
+    # Learning Rate Scheduler
+    total_steps = epochs * len(loader)
+    warmup_steps = int(0.1 * total_steps)
+    
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return step / max(1, warmup_steps)
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        return 0.5 * (1 + math.cos(math.pi * progress))
+    
+    scheduler = LambdaLR(optimizer, lr_lambda)
+    
+    # Loss metric
     loss_fn = nn.CrossEntropyLoss()
 
     if verbose:
@@ -108,13 +141,14 @@ def train_model(X: np.ndarray,
             loss = loss_fn(preds, yb)
             loss.backward()
             optimizer.step()
+            scheduler.step()
             
             total_loss += loss.item()
 
         end = time.perf_counter()
         if verbose:
             avg_loss = total_loss / len(loader)
-            print(f"Epoch {epoch}: Loss = {avg_loss:.4f}. Time taken = {end - start:.2f} s")
+            print(f"Epoch {epoch}: Loss = {avg_loss:.4f}. Time taken = {end - start:.2f}s")
 
     # Save trained model
     checkpoint_path = f'{path}model_{hold_days}.pth'
@@ -236,7 +270,7 @@ def walk_forward_validation(param_grid: Dict[str, Any],
         train_model(X, y, stock_ids, verbose=False)
 
         # Generate predictions
-        model_prediction(
+        model_inference(
             tickers=valid_tickers,
             full_df=full_df,
             feature_dim=X.shape[2],
