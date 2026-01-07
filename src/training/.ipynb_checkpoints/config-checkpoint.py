@@ -6,3 +6,7 @@ class TrainingConfig:
     lr: float
     epochs: int
     weight_decay: float
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str

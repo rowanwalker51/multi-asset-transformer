@@ -16,6 +16,7 @@ from src.models.model import TimeSeriesTransformer
 from src.utils.backtest import backtest
 from src.common.config import CommonConfig, load_yaml, get_config_path
 from src.training.config import TrainingConfig
+from src.utils.seed import seed_worker
 
 
 # Load YAML files
@@ -68,7 +69,6 @@ def train_model(X: np.ndarray,
     verbose : bool, default=True
         Whether to print training progress
     """
-
     # Convert data to torch tensors
     X_tensor = torch.tensor(X, dtype=torch.float32)
     y_tensor = torch.tensor(y, dtype=torch.long)
@@ -81,10 +81,17 @@ def train_model(X: np.ndarray,
                             regime_tensor, 
                             y_tensor)
     
-    loader = DataLoader(dataset, 
-                        batch_size=batch_size, 
-                        num_workers=os.cpu_count(), 
-                        shuffle=True)
+    g = torch.Generator()
+    g.manual_seed(common_cfg.random_seed)
+    
+    loader = DataLoader(
+        dataset,
+        shuffle=True,
+        batch_size=batch_size,
+        worker_init_fn=seed_worker,
+        generator=g,
+        num_workers=os.cpu_count()
+    )
 
     # Initialize model, optimizer, and loss function
     model = TimeSeriesTransformer(X.shape[2]).to(device)

@@ -8,6 +8,7 @@ class CommonConfig:
     num_stocks: int
     n_regimes: int
     seq_len: int
+    random_seed: int
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent

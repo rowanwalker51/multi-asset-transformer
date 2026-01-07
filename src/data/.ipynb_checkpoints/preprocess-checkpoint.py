@@ -11,7 +11,7 @@ from src.data.config import load_data_config
 
 # Load YAML files
 common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
-data_cfg = load_data_config("../configs/data.yaml")
+data_cfg = load_data_config(get_config_path("data.yaml")
 
 
 def load_raw_data() -> Dict[str, pd.DataFrame]:
@@ -26,41 +26,41 @@ def load_raw_data() -> Dict[str, pd.DataFrame]:
     raw_paths = data_cfg['paths']['raw']
     
     # Risk-free rate
-    rf_path = raw_paths['rf']['rf']
-    rf = (pd.read_parquet(rf_path)
+    rf_file = 'rf.parquet'
+    rf = (pd.read_parquet(raw_paths['rf'] / rf_file)
             .rename(columns={'Close': 'rf'})
             .set_index('Date'))
     rf.index = pd.to_datetime(rf.index)
 
     # FTSE index benchmark
-    index_path = raw_paths['index']
-    ftse = (pd.read_parquet(index_path)
+    index_file = 'index.parquet'
+    ftse = (pd.read_parquet(raw_paths['base'] / index_file)
               .rename(columns={'Close': 'ftse'})
               .set_index('Date'))
     ftse.index = pd.to_datetime(ftse.index)
 
     # FX rates
-    gbp_usd_path = raw_paths['fx']['gbp_usd']
-    gbp_usd = (pd.read_parquet(gbp_usd_path)
+    gbp_usd_file = 'gbp_usd.parquet'
+    gbp_usd = (pd.read_parquet(raw_paths['fx'] / gbp_usd_file)
                  .rename(columns={'Close': 'gbp_usd'})
                  .set_index('Date'))
     gbp_usd.index = pd.to_datetime(gbp_usd.index)
     
-    gbp_eur_path = raw_paths['fx']['gbp_eur']
-    gbp_eur = (pd.read_parquet(gbp_eur_path)
+    gbp_eur_file = 'gbp_eur.parquet'
+    gbp_eur = (pd.read_parquet(raw_paths['fx'] / gbp_eur_file)
                  .rename(columns={'Close': 'gbp_eur'})
                  .set_index('Date'))
     gbp_eur.index = pd.to_datetime(gbp_eur.index)
     
     # Commodities
-    gold_path = raw_paths['commodities']['gold']
-    gold = (pd.read_parquet(gold_path)
+    gold_file = 'gold.parquet'
+    gold = (pd.read_parquet(raw_paths['commodities'] / gold_file)
               .rename(columns={'Close': 'gold'})
               .set_index('Date'))
     gold.index = pd.to_datetime(gold.index)
     
-    oil_path = raw_paths['commodities']['oil']
-    oil = (pd.read_parquet(oil_path)
+    oil_file = 'oil.parquet'
+    oil = (pd.read_parquet(raw_paths['commodities'] / oil_file)
              .rename(columns={'Close': 'oil'})
              .set_index('Date'))
     oil.index = pd.to_datetime(oil.index)
@@ -103,16 +103,17 @@ def create_features(ticker: str,
     pd.DataFrame
         Feature matrix with predictors and the final label column.
     """
+    raw_paths = data_cfg['paths']['raw']
+    
     # FTSE index benchmark
-    index_path = data_cfg['paths']['raw']['index']
-    ftse = (pd.read_parquet(index_path)
+    index_file = 'index.parquet'
+    ftse = (pd.read_parquet(raw_paths['base'] / index_file)
               .rename(columns={'Close': 'ftse'})
               .set_index('Date'))
     ftse.index = pd.to_datetime(ftse.index)
     
     # Load raw price data for the ticker
-    input_path = data_cfg['paths']['raw']['ftse']
-    df = pd.read_parquet(input_path / f'{ticker}.parquet')
+    df = pd.read_parquet(raw_paths['ftse'] / f'{ticker}.parquet')
     df.index = pd.to_datetime(df.index)
 
     # Short, medium, long-term windows
@@ -194,8 +195,9 @@ def generate_valid_tickers(start_date: str,
     adequate number of observations within the date window.
     """
     # Load full FTSE ticker list
-    all_tickers_path = data_cfg['paths']['raw']['all_tickers']
-    all_tickers = pd.read_parquet(all_tickers_path)['ticker'].to_list()
+    all_tickers_path = data_cfg['paths']['raw']['base']
+    all_tickers_file = 'all_tickers.parquet'
+    all_tickers = pd.read_parquet(all_tickers_path / all_tickers_file)['ticker'].to_list()
 
     valid_tickers: List[str] = []
 
@@ -233,10 +235,11 @@ def hmm_features() -> pd.DataFrame:
     pd.DataFrame
         DataFrame containing the engineered features, indexed by Date.
     """
-    path = data_cfg['paths']['raw']['index']
+    path = data_cfg['paths']['raw']['base']
+    file = 'index.parquet'
     
     # Load price data
-    df = pd.read_parquet(path).set_index('Date')
+    df = pd.read_parquet(path / file).set_index('Date')
     df.index = pd.to_datetime(df.index)
 
     # Define short, medium, long-term windows
@@ -295,7 +298,6 @@ def hmm_model(df: pd.DataFrame,
         DataFrame of shape (len(df), n_regimes) containing the probability
         of each regime at each time step.
     """
-
     # Convert to float32 numpy array
     df_hmm = df.values.astype(np.float32)
 
@@ -308,7 +310,8 @@ def hmm_model(df: pd.DataFrame,
     model = hmm.GaussianHMM(n_components=n_regimes,
                             covariance_type="full",
                             n_iter=10000,
-                            tol=1e-4)
+                            tol=1e-4,
+                            random_state=common_cfg.random_seed)
 
     model.fit(df_hmm_norm)
 

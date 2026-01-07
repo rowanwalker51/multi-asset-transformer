@@ -1,0 +1,2 @@
+inference:
+  batch_size: 128

@@ -2,18 +2,12 @@ paths:
   data_root: data
   
   raw:
-    commodities:
-      gold: raw/commodities/gold.parquet
-      oil: raw/commodities/oil.parquet
+    base: raw
+    commodities: raw/commodities
     ftse: raw/ftse
-    fx:
-      gbp_eur: raw/fx/gbp_eur.parquet
-      gbp_usd: raw/fx/gbp_usd.parquet
-    rf:
-      rf: raw/rf/rf.parquet
-    index: raw/index.parquet
-    all_tickers: raw/all_tickers.parquet
+    fx: raw/fx
+    rf: raw/rf
     
   processed: processed
 
-  inference: inference/inference.parquet
+  inference: inference
