@@ -1,5 +1,0 @@
-common:
-  num_stocks: 5
-  n_regimes: 3
-  seq_len: 128
-  random_seed: 42

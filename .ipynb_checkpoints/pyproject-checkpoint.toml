@@ -1,6 +1,0 @@
-[project]
-name = "multi-asset-transformer"
-version = "1.0.0"
-
-[tool.setuptools.packages.find]
-where = ["."]

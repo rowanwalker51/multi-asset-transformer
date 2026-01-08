@@ -1,7 +1,0 @@
-1. Ablation studies - regime embedding, stock embedding, feature removal, RoPE vs absolute, remove horizon
-2. Stability/robustness - seed stability, noise injection, label shuffling, stress test
-3. Explainability - attention visualisation, feature attribution
-4. pytest tests
-5. Fix walk-forward/E2E
-6. CI/CD pipeline & Docker
-7. Fix spacings etc
