@@ -5,17 +5,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from src.utils.risk import compute_returns, sharpe_ratio, compute_alpha_beta
+from src.common.config import get_config_path
 from src.data.config import load_data_config
 
 
 # Load YAML files
-data_cfg = load_data_config("../configs/data.yaml")
+data_cfg = load_data_config(get_config_path("data.yaml"))
+                           
 
+from typing import Sequence
+import pandas as pd
 
-def add_signal(long_threshold: float,
-               short_threshold: float,
-               horizons: Sequence[int] = (1, 5, 21),
-               challenger: bool = False) -> pd.DataFrame:
+def add_signal(
+    long_threshold: float,
+    short_threshold: float,
+    horizons: Sequence[int] = (1, 5, 21),
+    challenger: bool = False,
+    df: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """
     Generate trading signals based on ensemble ranking of model predictions.
 
@@ -29,6 +36,8 @@ def add_signal(long_threshold: float,
         List of prediction horizons to include in ensemble ranking.
     challenger: bool, default=False
         If True, uses the challenger model inference.
+    df: pd.DataFrame, default=None
+        If provided, uses this DataFrame instead of reading from file - used for testing.
 
     Returns
     -------
@@ -37,30 +46,39 @@ def add_signal(long_threshold: float,
         - Ensemble ranking
         - Position (-1, 0, 1) based on thresholds
     """
-    
-    # Load predicted probabilities
-    input_path = data_cfg['paths']['inference']
-    if not challenger:
-        input_file = 'inference.parquet'
-    else:
-        input_file = 'inference_challenger.parquet'
-        
-    df = pd.read_parquet(input_path / input_file)
 
-    # Compute rank within each date for each horizon
+    # If no DataFrame is provided, read from file
+    if df is None:
+        input_path = data_cfg['paths']['inference']
+        input_file = 'inference_challenger.parquet' if challenger else 'inference.parquet'
+        df = pd.read_parquet(input_path / input_file)
+
+    # Initialize list to store ranks
+    rank_cols = []
+
+    # Compute ranks for each horizon if it exists
     for h in horizons:
-        df[f"Rank_{h}"] = df.groupby("Date")[f"Prediction_{h}"].rank(pct=True)
+        col = f"Prediction_{h}"
+        if col not in df.columns:
+            # Skip missing prediction columns instead of raising
+            continue
+        rank_col = f"Rank_{h}"
+        df[rank_col] = df.groupby("Date")[col].rank(pct=True)
+        rank_cols.append(rank_col)
 
-    # Compute ensemble mean rank across horizons
-    df["Ensemble"] = df[[f"Rank_{h}" for h in horizons]].mean(axis=1)
+    if not rank_cols:
+        raise ValueError(
+            f"No prediction columns found in DataFrame. Expected one of: "
+            f"{[f'Prediction_{h}' for h in horizons]}"
+        )
 
-    # Set MultiIndex for alignment
-    #df = df.set_index(['Date', 'Ticker']).sort_index()
+    # Compute ensemble rank as mean of available ranks
+    df["EnsembleRank"] = df[rank_cols].mean(axis=1)
 
-    # Initialize positions
-    df['Position'] = 0
-    df.loc[df['Ensemble'] >= long_threshold, 'Position'] = 1
-    df.loc[df['Ensemble'] <= short_threshold, 'Position'] = -1
+    # Generate positions based on thresholds
+    df["Position"] = 0
+    df.loc[df["EnsembleRank"] >= long_threshold, "Position"] = 1
+    df.loc[df["EnsembleRank"] <= short_threshold, "Position"] = -1
 
     return df
 
@@ -159,6 +177,7 @@ def vol_target_weights(signals: pd.Series,
 def backtest(param_grid: Dict[str, float],
              start_date: str,
              end_date: str,
+             df: pd.DataFrame | None = None,
              lookback: int = 21,
              initial_equity: float = 1000,
              sharpe_only: bool = False,
@@ -176,6 +195,8 @@ def backtest(param_grid: Dict[str, float],
         Backtest start date (YYYY-MM-DD).
     end_date : str
         Backtest end date (YYYY-MM-DD).
+    df: pd.DataFrame, default=None
+        If provided, uses this DataFrame instead of reading from file - used for testing.
     lookback : int, default=21
         Rolling window for volatility calculation and position sizing.
     initial_equity : float, default=1000
@@ -210,10 +231,22 @@ def backtest(param_grid: Dict[str, float],
     max_drawdown = param_grid['max_drawdown']
     fraction_per_trade = param_grid['leverage']
 
+    if df is not None:
+        df = df.copy()
+    if 'Date' in df.columns:
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
+        
     # Generate trading signals
-    df = add_signal(long_threshold=long_threshold, 
-                    short_threshold=short_threshold,
-                    challenger=challenger)
+    if df is None:
+        df = add_signal(long_threshold=long_threshold, 
+                        short_threshold=short_threshold,
+                        challenger=challenger)
+    else:
+        if "Position" not in df.columns:
+            df = add_signal(long_threshold=long_threshold,
+                            short_threshold=short_threshold,
+                            df=df)
     
     df = df.loc[start_date:end_date]
 
@@ -234,7 +267,8 @@ def backtest(param_grid: Dict[str, float],
     dd_peak = equity  # Peak equity for drawdown tracking
 
     # Loop through each day in backtest
-    for i in range(lookback+1, len(prices)):
+    start_idx = min(lookback+1, len(prices)-1)
+    for i in range(start_idx, len(prices)):
         date = prices.index[i]
 
         # Portfolio-level drawdown liquidation
@@ -288,8 +322,12 @@ def backtest(param_grid: Dict[str, float],
         equity *= (1 + daily_ret)
         equity_curve.append(equity)
 
+    if len(prices) <= lookback:
+        curve = pd.Series(equity_curve[:len(prices)], index=prices.index)
+    else:
+        curve = pd.Series(equity_curve[lookback:], index=prices.index[lookback:])
+
     # Construct equity DataFrame
-    curve = pd.Series(equity_curve, index=prices.index[lookback:])
     equity_df = pd.DataFrame(curve).rename(columns={0: 'Strategy_Equity'})
     equity_df.index = pd.to_datetime(equity_df.index)
 
@@ -344,6 +382,7 @@ def optimise_sharpe(params: Dict[str, Any],
                     trials: int,
                     start_date: str,
                     end_date: str,
+                    df: pd.DataFrame | None = None,
                     challenger: bool = False) -> Tuple[Dict[str, Any], float]:
     """
     Randomly search over parameter space to find the combination 
@@ -360,6 +399,8 @@ def optimise_sharpe(params: Dict[str, Any],
         Backtest start date in 'YYYY-MM-DD' format.
     end_date : str
         Backtest end date in 'YYYY-MM-DD' format.
+    df: pd.DataFrame, default=None
+        If provided, uses this DataFrame instead of reading from file - used for testing.
     challenger: bool, default=False
         If True, uses the challenger model inference.
 
@@ -384,7 +425,8 @@ def optimise_sharpe(params: Dict[str, Any],
                                    end_date=end_date,
                                    output=False,
                                    optimiser=True,
-                                   challenger=challenger)
+                                   challenger=challenger,
+                                   df=df)
 
         results.append({**chosen, 'Sharpe': sharpe})
 

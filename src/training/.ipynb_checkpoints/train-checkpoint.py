@@ -2,6 +2,7 @@ from typing import Optional, List, Dict, Any
 import math
 import time
 import os
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -27,6 +28,9 @@ train_cfg = TrainingConfig(**load_yaml(get_config_path("training.yaml"))["traini
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
 def train_model(X: np.ndarray,
                 y: np.ndarray,
                 stock_ids: np.ndarray,
@@ -37,7 +41,7 @@ def train_model(X: np.ndarray,
                 lr: float = train_cfg.lr,
                 epochs: int = train_cfg.epochs,
                 device: Optional[str] = device,
-                path: str = "../results/model/",
+                model_save_path: str = train_cfg.model_save_path,
                 verbose: bool = True) -> None:
     """
     Train a TimeSeriesTransformer model on multivariate time series data.
@@ -158,11 +162,13 @@ def train_model(X: np.ndarray,
             print(f"Epoch {epoch}: Loss = {avg_loss:.4f}. Time taken = {end - start:.2f}s")
 
     # Save trained model
-    checkpoint_path = f'{path}model_{hold_days}.pth'
-    torch.save(model.state_dict(), checkpoint_path)
+    save_path = Path(PROJECT_ROOT / model_save_path)
+    save_path.mkdir(parents=True, exist_ok=True)
+    file_name = f'model_{hold_days}.pth'
+    torch.save(model.state_dict(), save_path / file_name)
     if verbose:
         print('~' * 60)
-        print(f'Training completed. Model saved: {checkpoint_path}')
+        print(f'Training completed. Model saved: {save_path / file_name}')
 
 
 def generate_walk_forward_dates(start: str,

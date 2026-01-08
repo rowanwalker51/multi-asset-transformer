@@ -7,3 +7,4 @@ training:
   train_end: '2019-12-31'
   test_start: '2020-01-01'
   test_end: '2025-12-31'
+  model_save_path: 'results/model'

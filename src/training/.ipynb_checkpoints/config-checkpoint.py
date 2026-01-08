@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class TrainingConfig:
     batch_size: int
     lr: float
@@ -10,3 +10,4 @@ class TrainingConfig:
     train_end: str
     test_start: str
     test_end: str
+    model_save_path: str

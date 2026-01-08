@@ -4,10 +4,12 @@ multi_asset_transformer.egg-info/PKG-INFO
 multi_asset_transformer.egg-info/SOURCES.txt
 multi_asset_transformer.egg-info/dependency_links.txt
 multi_asset_transformer.egg-info/top_level.txt
+multi_asset_transformer.egg-info/.ipynb_checkpoints/SOURCES-checkpoint.txt
 src/__init__.py
 src/common/__init__.py
 src/common/config.py
 src/data/__init__.py
+src/data/config.py
 src/data/download.py
 src/data/preprocess.py
 src/gui/__init__.py
@@ -16,6 +18,7 @@ src/inference/__init__.py
 src/inference/config.py
 src/inference/inference.py
 src/models/__init__.py
+src/models/challenger.py
 src/models/config.py
 src/models/model.py
 src/training/__init__.py
@@ -24,3 +27,6 @@ src/training/train.py
 src/utils/__init__.py
 src/utils/backtest.py
 src/utils/risk.py
+src/utils/seed.py
+tests/conftest.py
+tests/data/test_data_loading.py

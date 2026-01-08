@@ -1,5 +1,6 @@
 from typing import List, Optional
 import time
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -10,20 +11,25 @@ from src.models.model import TimeSeriesTransformer
 from src.common.config import CommonConfig, load_yaml, get_config_path
 from src.data.config import load_data_config
 from src.inference.config import InferenceConfig
+from src.training.config import TrainingConfig
 
 
 # Load YAML files
 common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
 inference_cfg = InferenceConfig(**load_yaml(get_config_path("inference.yaml"))["inference"])
+train_cfg = TrainingConfig(**load_yaml(get_config_path("training.yaml"))["training"])
 data_cfg = load_data_config(get_config_path("data.yaml"))
 
     
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
 def load_model(feature_dim: int,
                hold_days: int,
-               path: str = '../results/model/') -> nn.Module:
+               model_load_path: str = train_cfg.model_save_path) -> nn.Module:
     """
     Load a pre-trained TimeSeriesTransformer model.
 
@@ -45,8 +51,9 @@ def load_model(feature_dim: int,
     model = TimeSeriesTransformer(feature_dim)
 
     # Load trained weights
-    checkpoint_path = f'{path}model_{hold_days}.pth'
-    model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'), strict=True)
+    load_path = PROJECT_ROOT / model_load_path
+    file_name = f'model_{hold_days}.pth'
+    model.load_state_dict(torch.load(load_path / file_name, map_location='cpu'), strict=True)
 
     # Set model to evaluation mode
     model.eval()
