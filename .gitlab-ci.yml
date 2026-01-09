@@ -1,19 +1,16 @@
 stages:
   - test
 
-pytest:
+pytest_job:
   stage: test
   image: python:3.12
   before_script:
-    - python -m pip install --upgrade pip
+    - pip install --upgrade pip
     - pip install -r requirements.txt
   script:
-    - pytest
+    - pytest --junitxml=pytest-results.xml
   artifacts:
     when: always
     reports:
       junit: pytest-results.xml
-    paths:
-      - pytest-results.xml
-  only:
-    - main
+    expire_in: 1 hour
