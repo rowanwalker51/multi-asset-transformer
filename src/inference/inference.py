@@ -15,21 +15,27 @@ from src.training.config import TrainingConfig
 
 
 # Load YAML files
-common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
-inference_cfg = InferenceConfig(**load_yaml(get_config_path("inference.yaml"))["inference"])
-train_cfg = TrainingConfig(**load_yaml(get_config_path("training.yaml"))["training"])
+common_cfg = CommonConfig(
+    **load_yaml(get_config_path("common.yaml"))["common"]
+)
+inference_cfg = InferenceConfig(
+    **load_yaml(get_config_path("inference.yaml"))["inference"]
+)
+train_cfg = TrainingConfig(
+    **load_yaml(get_config_path("training.yaml"))["training"]
+)
 data_cfg = load_data_config(get_config_path("data.yaml"))
 
-    
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def load_model(feature_dim: int,
-               hold_days: int,
-               model_load_path: str = train_cfg.model_save_path) -> nn.Module:
+def load_model(
+    feature_dim: int,
+    hold_days: int,
+    model_load_path: str = train_cfg.model_save_path
+) -> nn.Module:
     """
     Load a pre-trained TimeSeriesTransformer model.
 
@@ -52,8 +58,11 @@ def load_model(feature_dim: int,
 
     # Load trained weights
     load_path = PROJECT_ROOT / model_load_path
-    file_name = f'model_{hold_days}.pth'
-    model.load_state_dict(torch.load(load_path / file_name, map_location='cpu'), strict=True)
+    file_name = f"model_{hold_days}.pth"
+    model.load_state_dict(
+        torch.load(load_path / file_name, map_location="cpu"),
+        strict=True
+    )
 
     # Set model to evaluation mode
     model.eval()
@@ -61,17 +70,19 @@ def load_model(feature_dim: int,
     return model
 
 
-def model_inference(tickers: List[str],
-                    full_df: pd.DataFrame,
-                    feature_dim: int,
-                    hold_days: List[int],
-                    n_regimes: int = common_cfg.n_regimes,
-                    seq_len: int = common_cfg.seq_len,
-                    batch_size: int = inference_cfg.batch_size,
-                    verbose: bool = True) -> None:
+def model_inference(
+    tickers: List[str],
+    full_df: pd.DataFrame,
+    feature_dim: int,
+    hold_days: List[int],
+    n_regimes: int = common_cfg.n_regimes,
+    seq_len: int = common_cfg.seq_len,
+    batch_size: int = inference_cfg.batch_size,
+    verbose: bool = True
+) -> None:
     """
     Generate model predictions for multiple tickers and horizons, and save to CSV.
-    
+
     Parameters
     ----------
     tickers : List[str]
@@ -135,10 +146,12 @@ def model_inference(tickers: List[str],
                 x_batch = torch.from_numpy(X[i:i + batch_size]).to(device)
                 r_batch = torch.from_numpy(R[i:i + batch_size]).to(device)
 
-                s_batch = torch.full((x_batch.size(0),),
-                                     ticker_id,
-                                     dtype=torch.long,
-                                     device=device)
+                s_batch = torch.full(
+                    (x_batch.size(0),),
+                    ticker_id,
+                    dtype=torch.long,
+                    device=device
+                )
 
                 with torch.inference_mode():
                     logits = model(x_batch, s_batch, r_batch)
@@ -146,14 +159,18 @@ def model_inference(tickers: List[str],
 
                 # Write batch outputs back to row format
                 for date, prob in zip(dates[i:i + batch_size], probs):
-                    prediction_rows.append({"Date": date,
-                                            "Ticker": ticker,
-                                            f"Prediction_{horizon}": float(prob)})
+                    prediction_rows.append({
+                        "Date": date,
+                        "Ticker": ticker,
+                        f"Prediction_{horizon}": float(prob)
+                    })
 
         # Assemble horizon-specific prediction DataFrame
-        dfs[horizon] = (pd.DataFrame(prediction_rows)
-                          .set_index(["Date", "Ticker"])
-                          .sort_index())
+        dfs[horizon] = (
+            pd.DataFrame(prediction_rows)
+            .set_index(["Date", "Ticker"])
+            .sort_index()
+        )
 
     # Merge all horizon predictions into a single table
     pred_df_full = dfs[hold_days[0]].copy()
@@ -161,11 +178,13 @@ def model_inference(tickers: List[str],
         pred_df_full = pred_df_full.join(dfs[horizon], how="outer")
 
     # Merge predictions back into the full feature set
-    merged = (full_df.merge(pred_df_full, on=["Date", "Ticker"], how="left")
-                     .dropna())
+    merged = (
+        full_df.merge(pred_df_full, on=["Date", "Ticker"], how="left")
+        .dropna()
+    )
 
-    output_path = data_cfg['paths']['inference']
-    output_file = 'inference.parquet'
+    output_path = data_cfg["paths"]["inference"]
+    output_file = "inference.parquet"
     merged.to_parquet(output_path / output_file)
 
     if verbose:

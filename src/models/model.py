@@ -8,13 +8,19 @@ from src.models.config import ModelConfig
 
 
 # Load YAML files
-common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
-model_cfg = ModelConfig(**load_yaml(get_config_path("model.yaml"))["model"])
+common_cfg = CommonConfig(
+    **load_yaml(get_config_path("common.yaml"))["common"]
+)
+model_cfg = ModelConfig(
+    **load_yaml(get_config_path("model.yaml"))["model"]
+)
 
 
-def apply_rotary(sin: torch.Tensor, 
-                 cos: torch.Tensor, 
-                 x: torch.Tensor) -> torch.Tensor:
+def apply_rotary(
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    x: torch.Tensor
+) -> torch.Tensor:
     """
     Apply rotary positional embeddings to the input tensor.
 
@@ -49,8 +55,10 @@ def apply_rotary(sin: torch.Tensor,
     return torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
 
 
-def build_rope(d_model: int, 
-               seq_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def build_rope(
+    d_model: int,
+    seq_len: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Construct rotary positional embeddings (RoPE) for a transformer.
 
@@ -74,7 +82,7 @@ def build_rope(d_model: int,
 
     # Compute base frequencies for each pair of dimensions
     theta = 1.0 / (10000 ** (torch.arange(0, half_dim, 2).float() / half_dim))
-    
+
     # Sequence positions
     t = torch.arange(seq_len).float().unsqueeze(1)  # (seq_len, 1)
 
@@ -96,16 +104,18 @@ class TimeSeriesTransformer(nn.Module):
     Incorporates rotary positional embeddings (RoPE) and a CLS token for classification.
     """
 
-    def __init__(self,
-                 feature_dim: int,
-                 d_model: int = model_cfg.d_model,
-                 nhead: int = model_cfg.n_head,
-                 num_layers: int = model_cfg.n_layers,
-                 num_classes: int = model_cfg.n_classes,
-                 seq_len: int = common_cfg.seq_len,
-                 num_stocks: int = common_cfg.num_stocks,
-                 n_regimes: int = common_cfg.n_regimes,
-                 dropout: float = model_cfg.dropout):
+    def __init__(
+        self,
+        feature_dim: int,
+        d_model: int = model_cfg.d_model,
+        nhead: int = model_cfg.n_head,
+        num_layers: int = model_cfg.n_layers,
+        num_classes: int = model_cfg.n_classes,
+        seq_len: int = common_cfg.seq_len,
+        num_stocks: int = common_cfg.num_stocks,
+        n_regimes: int = common_cfg.n_regimes,
+        dropout: float = model_cfg.dropout
+    ):
         super().__init__()
 
         self.seq_len = seq_len
@@ -135,26 +145,31 @@ class TimeSeriesTransformer(nn.Module):
         self.regime_proj = nn.Linear(n_regimes, d_model)
 
         # Transformer encoder
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model,
-                                                   nhead=nhead,
-                                                   dim_feedforward=d_model * 4,
-                                                   dropout=dropout,
-                                                   batch_first=True,
-                                                   norm_first=True)
-        
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=d_model * 4,
+            dropout=dropout,
+            batch_first=True,
+            norm_first=True
+        )
+
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
 
         # Final classification layer
-        self.fc_head = nn.Sequential(nn.LayerNorm(d_model),
-                                     nn.Linear(d_model, d_model // 2),
-                                     nn.GELU(),
-                                     nn.Linear(d_model // 2, num_classes))
+        self.fc_head = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, d_model // 2),
+            nn.GELU(),
+            nn.Linear(d_model // 2, num_classes)
+        )
 
-    
-    def forward(self,
-                x: torch.Tensor,
-                stock_id: torch.Tensor,
-                regime_probs: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        stock_id: torch.Tensor,
+        regime_probs: torch.Tensor
+    ) -> torch.Tensor:
         """
         Forward pass of the transformer.
 
@@ -179,7 +194,7 @@ class TimeSeriesTransformer(nn.Module):
         x = self.input_proj(x)
 
         # Stock embedding
-        stock_vec = self.stock_emb(stock_id)          # (B, d_model)
+        stock_vec = self.stock_emb(stock_id)           # (B, d_model)
         stock_vec = self.stock_proj(stock_vec)        # (B, d_model)
         stock_vec = stock_vec.unsqueeze(1).repeat(1, T, 1)  # (B, T, d_model)
         x = x + stock_vec
@@ -195,7 +210,7 @@ class TimeSeriesTransformer(nn.Module):
 
         # Add CLS token
         cls = self.cls_token.repeat(B, 1, 1)  # (B, 1, d_model)
-        x = torch.cat([cls, x], dim=1)       # (B, T+1, d_model)
+        x = torch.cat([cls, x], dim=1)        # (B, T+1, d_model)
 
         # Append regime embedding for CLS token
         regime_emb = torch.cat([cls_regime, regime_emb], dim=1)  # (B, T+1, d_model)
@@ -214,11 +229,8 @@ class TimeSeriesTransformer(nn.Module):
         x = self.dropout(x)
 
         # Setting up causal mask
-        mask = torch.triu(
-            torch.ones(T+1, T+1, device=x.device),
-            diagonal=1
-        ).bool()
-        
+        mask = torch.triu(torch.ones(T + 1, T + 1, device=x.device), diagonal=1).bool()
+
         # CLS attends to everything
         mask[0, :] = False
 

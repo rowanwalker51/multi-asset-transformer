@@ -12,7 +12,9 @@ from src.common.config import CommonConfig, load_yaml, get_config_path
 
 
 # Load YAML files
-common_cfg = CommonConfig(**load_yaml(get_config_path("common.yaml"))["common"])
+common_cfg = CommonConfig(
+    **load_yaml(get_config_path("common.yaml"))["common"]
+)
 
 
 def prepare_challenger_data(
@@ -86,7 +88,7 @@ def train_xgb_challenger(
         objective="binary:logistic",
         eval_metric="logloss",
         random_state=random_state,
-        tree_method="hist"
+        tree_method="hist",
     )
 
     pipe = Pipeline(

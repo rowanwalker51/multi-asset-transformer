@@ -26,23 +26,23 @@ train_cfg = TrainingConfig(**load_yaml(get_config_path("training.yaml"))["traini
 
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def train_model(X: np.ndarray,
-                y: np.ndarray,
-                stock_ids: np.ndarray,
-                regime_X: np.ndarray,
-                hold_days: int,
-                batch_size: int = train_cfg.batch_size,
-                weight_decay: float = train_cfg.weight_decay,
-                lr: float = train_cfg.lr,
-                epochs: int = train_cfg.epochs,
-                device: Optional[str] = device,
-                model_save_path: str = train_cfg.model_save_path,
-                verbose: bool = True) -> None:
+def train_model(
+    X: np.ndarray,
+    y: np.ndarray,
+    stock_ids: np.ndarray,
+    regime_X: np.ndarray,
+    hold_days: int,
+    batch_size: int = train_cfg.batch_size,
+    weight_decay: float = train_cfg.weight_decay,
+    lr: float = train_cfg.lr,
+    epochs: int = train_cfg.epochs,
+    device: Optional[str] = device,
+    model_save_path: str = train_cfg.model_save_path,
+    verbose: bool = True
+) -> None:
     """
     Train a TimeSeriesTransformer model on multivariate time series data.
 
@@ -80,10 +80,7 @@ def train_model(X: np.ndarray,
     regime_tensor = torch.tensor(regime_X, dtype=torch.float32)
 
     # Create dataset and loader
-    dataset = TensorDataset(X_tensor, 
-                            stock_tensor, 
-                            regime_tensor, 
-                            y_tensor)
+    dataset = TensorDataset(X_tensor, stock_tensor, regime_tensor, y_tensor)
     
     g = torch.Generator()
     g.manual_seed(common_cfg.random_seed)
@@ -130,8 +127,6 @@ def train_model(X: np.ndarray,
         return 0.5 * (1 + math.cos(math.pi * progress))
     
     scheduler = LambdaLR(optimizer, lr_lambda)
-    
-    # Loss metric
     loss_fn = nn.CrossEntropyLoss()
 
     if verbose:
@@ -171,10 +166,12 @@ def train_model(X: np.ndarray,
         print(f'Training completed. Model saved: {save_path / file_name}')
 
 
-def generate_walk_forward_dates(start: str,
-                                end: str,
-                                train_length: int,
-                                test_length: int) -> List[List[pd.Timestamp]]:
+def generate_walk_forward_dates(
+    start: str,
+    end: str,
+    train_length: int,
+    test_length: int
+) -> List[List[pd.Timestamp]]:
     """
     Generate walk-forward training and testing date ranges.
 
@@ -214,14 +211,16 @@ def generate_walk_forward_dates(start: str,
     return dates
 
 
-def walk_forward_validation(param_grid: Dict[str, Any],
-                            hold_days: int,
-                            start: str = '2000-11-20',
-                            end: str = '2025-11-20',
-                            train_length: int = 5,
-                            test_length: int = 1,
-                            num_stocks: int = common_cfg.num_stocks,
-                            seq_len: int = common_cfg.seq_len) -> pd.DataFrame:
+def walk_forward_validation(
+    param_grid: Dict[str, Any],
+    hold_days: int,
+    start: str = '2000-11-20',
+    end: str = '2025-11-20',
+    train_length: int = 5,
+    test_length: int = 1,
+    num_stocks: int = common_cfg.num_stocks,
+    seq_len: int = common_cfg.seq_len
+) -> pd.DataFrame:
     """
     Perform walk-forward validation for a trading model using sequential train/test splits.
 
@@ -259,8 +258,10 @@ def walk_forward_validation(param_grid: Dict[str, Any],
         start, end, train_length, test_length
     ):
         timer_start = time.perf_counter()
-        print(f'Beginning walk-forward validation {split_counter} of {total_trainings}.'
-              f'Train Window: {start_train.strftime("%Y-%m-%d")} to {end_train.strftime("%Y-%m-%d")}.')
+        print(
+            f'Beginning walk-forward validation {split_counter} of {total_trainings}. '
+            f'Train Window: {start_train.strftime("%Y-%m-%d")} to {end_train.strftime("%Y-%m-%d")}.'
+        )
 
         # Select valid tickers with sufficient data
         valid_tickers = generate_valid_tickers(
@@ -275,7 +276,7 @@ def walk_forward_validation(param_grid: Dict[str, Any],
             train_start=start_train,
             train_end=end_train,
             seq_len=seq_len,
-            hold_days=HOLD_DAYS,
+            hold_days=hold_days,
             verbose=False
         )
 
@@ -287,7 +288,7 @@ def walk_forward_validation(param_grid: Dict[str, Any],
             tickers=valid_tickers,
             full_df=full_df,
             feature_dim=X.shape[2],
-            hold_days=HOLD_DAYS,
+            hold_days=hold_days,
             verbose=False
         )
 
@@ -302,21 +303,15 @@ def walk_forward_validation(param_grid: Dict[str, Any],
         )
 
         # Save results
-        wf_data.append({
-            'Train Start': start_train,
-            'Sharpe': sharpe
-        })
+        wf_data.append({'Train Start': start_train, 'Sharpe': sharpe})
 
         timer_end = time.perf_counter()
-        print(f'Walk-forward validation {split_counter} finished. '
-              f'Time taken = {timer_end - timer_start:.2f} seconds.\n')
+        print(
+            f'Walk-forward validation {split_counter} finished. '
+            f'Time taken = {timer_end - timer_start:.2f} seconds.\n'
+        )
 
         split_counter += 1
 
     # Return results as DataFrame indexed by training start date
     return pd.DataFrame(wf_data).set_index('Train Start').sort_index()
-
-
-
-
-    
