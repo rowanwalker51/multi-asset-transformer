@@ -5,7 +5,7 @@ pytest:
   stage: test
   image: python:3.12
   variables:
-    PYTHONPATH: "$CI_PROJECT_DIR"  # <- tell Python where to find src
+    PYTHONPATH: "$CI_PROJECT_DIR"
   before_script:
     - pip install --upgrade pip
     - pip install -r requirements.txt
