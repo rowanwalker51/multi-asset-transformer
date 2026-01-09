@@ -1,16 +1,20 @@
 stages:
   - test
 
-pytest_job:
+pytest:
   stage: test
   image: python:3.12
+  variables:
+    PYTHONPATH: "$CI_PROJECT_DIR"  # <- tell Python where to find src
   before_script:
     - pip install --upgrade pip
     - pip install -r requirements.txt
+    - pip install -e .
   script:
     - pytest --junitxml=pytest-results.xml
   artifacts:
     when: always
     reports:
       junit: pytest-results.xml
-    expire_in: 1 hour
+    paths:
+      - pytest-results.xml
