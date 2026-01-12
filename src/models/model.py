@@ -1,10 +1,11 @@
 from typing import Tuple, Optional
+from dataclasses import replace
 
 import torch
 import torch.nn as nn
 
 from src.common.config import CommonConfig, load_yaml, get_config_path
-from src.models.config import ModelConfig
+from src.models.config import ModelConfig, AblationConfig, ABLATIONS
 
 
 # Load YAML files
@@ -13,6 +14,9 @@ common_cfg = CommonConfig(
 )
 model_cfg = ModelConfig(
     **load_yaml(get_config_path("model.yaml"))["model"]
+)
+ablation_cfg = AblationConfig(
+    **load_yaml(get_config_path("ablation.yaml"))["ablation"]
 )
 
 
@@ -100,8 +104,10 @@ def build_rope(
 
 class TimeSeriesTransformer(nn.Module):
     """
-    Transformer model for multivariate time series with stock and regime embeddings.
-    Incorporates rotary positional embeddings (RoPE) and a CLS token for classification.
+    Transformer model for multivariate time series with optional
+    stock embeddings, regime embeddings, and CLS token.
+
+    All ablations are controlled via config flags.
     """
 
     def __init__(
@@ -114,13 +120,27 @@ class TimeSeriesTransformer(nn.Module):
         seq_len: int = common_cfg.seq_len,
         num_stocks: int = common_cfg.num_stocks,
         n_regimes: int = common_cfg.n_regimes,
-        dropout: float = model_cfg.dropout
+        dropout: float = model_cfg.dropout,
+        ablation_cfg: dict | None = ablation_cfg,
+        ablation_name: str = 'baseline'
     ):
         super().__init__()
+       
+        ablation_cfg = replace(
+            ablation_cfg,
+            **ABLATIONS[ablation_name]
+        )
+
+        self.use_regime_embedding = getattr(ablation_cfg, "use_regime_embedding")
+        self.shuffle_regime = getattr(ablation_cfg, "shuffle_regime")
+        self.constant_regime = getattr(ablation_cfg, "constant_regime")
+        self.use_stock_embedding = getattr(ablation_cfg, "use_stock_embedding")
+        self.use_cls_token = getattr(ablation_cfg, "use_cls_token")
 
         self.seq_len = seq_len
+        self.d_model = d_model
 
-        # Input projection to model dimension
+        # Input projection
         self.input_proj = nn.Linear(feature_dim, d_model)
 
         # Stock embedding
@@ -130,114 +150,123 @@ class TimeSeriesTransformer(nn.Module):
         # CLS token
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
 
-        # Dropout
-        self.dropout = nn.Dropout(dropout)
+        # Regime projection
+        self.regime_proj = nn.Linear(n_regimes, d_model)
 
-        # LayerNorm before transformer
+        # Pre-transformer LayerNorm
         self.pre_ln = nn.LayerNorm(d_model)
 
-        # Rotary positional embeddings
+        # Rotary embeddings
         sin, cos = build_rope(d_model, seq_len + 1)
         self.register_buffer("rope_sin", sin, persistent=False)
         self.register_buffer("rope_cos", cos, persistent=False)
 
-        # Regime embedding projection
-        self.regime_proj = nn.Linear(n_regimes, d_model)
-
-        # Transformer encoder
+        # Transformer
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
             dim_feedforward=d_model * 4,
             dropout=dropout,
             batch_first=True,
-            norm_first=True
+            norm_first=True,
         )
-
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers)
 
-        # Final classification layer
+        # Head
         self.fc_head = nn.Sequential(
             nn.LayerNorm(d_model),
             nn.Linear(d_model, d_model // 2),
             nn.GELU(),
-            nn.Linear(d_model // 2, num_classes)
+            nn.Linear(d_model // 2, num_classes),
         )
+
+        self.dropout = nn.Dropout(dropout)
 
     def forward(
         self,
         x: torch.Tensor,
         stock_id: torch.Tensor,
-        regime_probs: torch.Tensor
+        regime_probs: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Forward pass of the transformer.
+        Forward pass.
 
         Parameters
         ----------
         x : torch.Tensor
-            Input sequence of shape (batch_size, seq_len, feature_dim)
+            (B, T, feature_dim)
         stock_id : torch.Tensor
-            Stock indices of shape (batch_size,)
+            (B,)
         regime_probs : torch.Tensor
-            Regime probability sequences of shape (batch_size, seq_len, n_regimes)
-
-        Returns
-        -------
-        torch.Tensor
-            Output logits of shape (batch_size, num_classes)
+            (B, T, n_regimes)
         """
 
         B, T, _ = x.size()
 
-        # Project input features
+        # Input projection
         x = self.input_proj(x)
 
         # Stock embedding
-        stock_vec = self.stock_emb(stock_id)           # (B, d_model)
-        stock_vec = self.stock_proj(stock_vec)        # (B, d_model)
-        stock_vec = stock_vec.unsqueeze(1).repeat(1, T, 1)  # (B, T, d_model)
-        x = x + stock_vec
+        if self.use_stock_embedding:
+            stock_vec = self.stock_emb(stock_id)
+            stock_vec = self.stock_proj(stock_vec)
+            stock_vec = stock_vec.unsqueeze(1).expand(-1, T, -1)
+            x = x + stock_vec
 
-        # Regime embedding
-        regime_emb = self.regime_proj(regime_probs)  # (B, T, d_model)
+        # Regime handling
+        if self.use_regime_embedding:
+            if self.shuffle_regime:
+                idx = torch.randperm(T, device=x.device)
+                regime_probs = regime_probs[:, idx]
 
-        # CLS token regime placeholder for shape consistency
-        cls_regime = torch.zeros(B, 1, regime_emb.size(-1), device=x.device)
+            if self.constant_regime:
+                regime_probs = regime_probs.mean(dim=1, keepdim=True).expand(-1, T, -1)
 
-        # Pre-Layer normalisation before adding CLS
+            regime_emb = self.regime_proj(regime_probs)
+        else:
+            regime_emb = torch.zeros_like(x)
+
+        # Pre-LN
         x = self.pre_ln(x)
 
-        # Add CLS token
-        cls = self.cls_token.repeat(B, 1, 1)  # (B, 1, d_model)
-        x = torch.cat([cls, x], dim=1)        # (B, T+1, d_model)
+        # CLS token
+        if self.use_cls_token:
+            cls = self.cls_token.expand(B, -1, -1)
+            x = torch.cat([cls, x], dim=1)
+            cls_regime = torch.zeros(B, 1, self.d_model, device=x.device)
+            regime_emb = torch.cat([cls_regime, regime_emb], dim=1)
 
-        # Append regime embedding for CLS token
-        regime_emb = torch.cat([cls_regime, regime_emb], dim=1)  # (B, T+1, d_model)
         x = x + regime_emb
 
-        # Apply rotary positional embeddings excluding CLS
-        cls, seq = x[:, :1], x[:, 1:]
-
-        sin = self.rope_sin[:T]
-        cos = self.rope_cos[:T]
-
-        seq = apply_rotary(sin, cos, seq)
-        x = torch.cat([cls, seq], dim=1)
-
-        # Dropout
-        x = self.dropout(x)
-
-        # Setting up causal mask
-        mask = torch.triu(torch.ones(T + 1, T + 1, device=x.device), diagonal=1).bool()
-
-        # CLS attends to everything
-        mask[0, :] = False
+        # Rotary embeddings
+        if self.use_cls_token:
+            cls, seq = x[:, :1], x[:, 1:]
+            seq = apply_rotary(self.rope_sin[:T], self.rope_cos[:T], seq)
+            x = torch.cat([cls, seq], dim=1)
+        else:
+            x = apply_rotary(self.rope_sin[:T], self.rope_cos[:T], x)
 
         # Transformer
+        x = self.dropout(x)
+
+        if self.use_cls_token:
+            mask = torch.triu(
+                torch.ones(T + 1, T + 1, device=x.device),
+                diagonal=1,
+            ).bool()
+            mask[0, :] = False
+        else:
+            mask = torch.triu(
+                torch.ones(T, T, device=x.device),
+                diagonal=1,
+            ).bool()
+
         x = self.transformer(x, mask=mask)
 
-        # Use CLS token output for classification
-        cls_out = x[:, 0, :]
+        # Output (CLS vs pooling)
+        if self.use_cls_token:
+            out = x[:, 0]
+        else:
+            out = x.mean(dim=1)
 
-        return self.fc_head(cls_out)
+        return self.fc_head(out)

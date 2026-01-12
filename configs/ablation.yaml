@@ -1,0 +1,6 @@
+ablation:
+  use_regime_embedding: true
+  shuffle_regime: false
+  constant_regime: false
+  use_stock_embedding: true
+  use_cls_token: true

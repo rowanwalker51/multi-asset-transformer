@@ -41,6 +41,7 @@ def train_model(
     epochs: int = train_cfg.epochs,
     device: Optional[str] = device,
     model_save_path: str = train_cfg.model_save_path,
+    ablation_name: str = 'baseline',
     verbose: bool = True
 ) -> None:
     """
@@ -68,8 +69,10 @@ def train_model(
         Number of training epochs
     device : str, optional
         Device to train on
-    path : str, default="../results/model/"
+    path : str, default='../results/model/'
         Directory to save the trained model
+    ablation_name: str, default='baseline'
+        Used in ablation testing
     verbose : bool, default=True
         Whether to print training progress
     """
@@ -95,7 +98,10 @@ def train_model(
     )
 
     # Initialize model, optimizer, and loss function
-    model = TimeSeriesTransformer(X.shape[2]).to(device)
+    model = TimeSeriesTransformer(
+        feature_dim=X.shape[2],
+        ablation_name=ablation_name
+    ).to(device)
 
     # Optimiser with weight decay
     decay, no_decay = [], []

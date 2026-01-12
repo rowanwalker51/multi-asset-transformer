@@ -279,11 +279,12 @@ def backtest(
         equity *= (1 + daily_ret)
         equity_curve.append(equity)
 
-    curve = pd.Series(equity_curve[lookback:] if len(prices) > lookback else equity_curve[:len(prices)],
-                      index=prices.index[lookback:] if len(prices) > lookback else prices.index)
-
-    equity_df = pd.DataFrame(curve).rename(columns={0: 'Strategy_Equity'})
-    equity_df.index = pd.to_datetime(equity_df.index)
+    curve = pd.Series(
+        equity_curve,
+        index=prices.index[start_idx-1:]
+    )
+    
+    equity_df = curve.to_frame('Strategy_Equity')
 
     benchmark_path = data_cfg['paths']['raw']['base']
     benchmark_file = 'index.parquet'
