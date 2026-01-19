@@ -3,7 +3,7 @@ stages:
   - docker_build
 
 pytest:
-  stage: test
+  stage: pytest
   image: python:3.12
   variables:
     PYTHONPATH: "$CI_PROJECT_DIR"
