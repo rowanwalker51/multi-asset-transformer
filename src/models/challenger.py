@@ -9,12 +9,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 
 from src.common.config import CommonConfig, load_yaml, get_config_path
+from src.data.config import load_data_config
 
 
 # Load YAML files
 common_cfg = CommonConfig(
     **load_yaml(get_config_path("common.yaml"))["common"]
 )
+data_cfg = load_data_config(get_config_path("data.yaml"))
 
 
 def prepare_challenger_data(
@@ -65,6 +67,7 @@ def train_xgb_challenger(
     train_end: str,
     test_start: str,
     test_end: str,
+    verbose: bool = True,
     random_state: int = common_cfg.random_seed
 ) -> np.ndarray:
     """
@@ -104,12 +107,12 @@ def train_xgb_challenger(
         "model__learning_rate": [0.05, 0.1, 0.15],
         "model__subsample": [0.15, 0.2, 0.25],
         "model__colsample_bytree": [0.8, 1.0],
-        "model__gamma": [6.25, 6.5, 6.75],
-        "model__reg_alpha": [0.0, 0.1, 0.5],
-        "model__reg_lambda": [1.0, 1.5, 2.0],
+        "model__gamma": [6.25, 6.5, 6.75]
+        # "model__reg_alpha": [0.0, 0.1, 0.5],
+        # "model__reg_lambda": [1.0, 1.5, 2.0],
     }
 
-    cv = TimeSeriesSplit(n_splits=5)
+    cv = TimeSeriesSplit(n_splits=2)
 
     start = time.perf_counter()
 
@@ -125,19 +128,18 @@ def train_xgb_challenger(
     grid.fit(X_train, y_train)
 
     elapsed = time.perf_counter() - start
-    print(f"XGBoost GridSearch complete ({elapsed:.2f}s)")
+    if verbose:
+        print(f"XGBoost GridSearch complete ({elapsed:.2f}s)")
 
     # Probability of the positive class
     return grid.best_estimator_.predict_proba(X_test)[:, 1]
 
 
 def build_challenger_inference_data(
-    probabilities: Sequence[float],
+    probabilities: pd.DataFrame,
     processed_df: pd.DataFrame,
     test_start: str,
-    test_end: str,
-    hold_days: int,
-    save_path
+    test_end: str
 ) -> None:
     """
     Attach challenger model probabilities to the processed feature
@@ -145,26 +147,22 @@ def build_challenger_inference_data(
 
     Parameters
     ----------
-    probabilities : Sequence[float]
+    probabilities : pd.DataFrame
         Output probabilities from the challenger model.
     processed_df : pd.DataFrame
         Feature DataFrame used for modelling (must have DateTimeIndex).
     test_start : str
     test_end : str
-    hold_days : int
-    save_path : Path
-        Location to save the inference parquet.
     """
-    challenger = pd.DataFrame(
-        {f"Prediction_{hold_days}": probabilities},
-        index=processed_df.loc[test_start:test_end].index,
-    )
+    probabilities.index = processed_df.loc[test_start:test_end].index
 
     inference_df = (
         processed_df
         .loc[test_start:test_end]
         .drop(columns=["Label"], errors="ignore")
-        .join(challenger, how="left")
+        .join(probabilities, how="left")
     )
-
-    inference_df.to_parquet(save_path)
+    
+    save_path = data_cfg['paths']['inference']
+    file_name = 'inference_challenger.parquet'
+    inference_df.to_parquet(save_path / file_name)

@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import math
 import time
 import os
@@ -219,7 +219,7 @@ def generate_walk_forward_dates(
 
 def walk_forward_validation(
     param_grid: Dict[str, Any],
-    hold_days: int,
+    hold_days: Tuple[int],
     start: str = '2000-11-20',
     end: str = '2025-11-20',
     train_length: int = 5,
@@ -234,8 +234,8 @@ def walk_forward_validation(
     ----------
     param_grid : Dict[str, Any]
         Parameters for backtesting and optimization.
-    hold_days : int
-        Forward horizon for model predictions.
+    hold_days : Tuple[int]
+        Forward horizons for model predictions.
     start : str, default='2000-11-20'
         Start date for the first training period.
     end : str, default='2025-11-20'
@@ -244,9 +244,9 @@ def walk_forward_validation(
         Training window length in years.
     test_length : int, default=1
         Testing window length in years.
-    num_stocks : int, default=NUM_STOCKS
+    num_stocks : int, default=common_cfg.num_stocks
         Number of tickers to include per split.
-    seq_len : int, default=SEQ_LEN
+    seq_len : int, default=common_cfg.seq_len
         Sequence length for model input.
 
     Returns
@@ -269,44 +269,37 @@ def walk_forward_validation(
             f'Train Window: {start_train.strftime("%Y-%m-%d")} to {end_train.strftime("%Y-%m-%d")}.'
         )
 
-        # Select valid tickers with sufficient data
-        valid_tickers = generate_valid_tickers(
-            start_date=start_train, 
-            end_date=end_test,
-            num_stocks=num_stocks
-        )
-
-        # Generate model inputs for the training period
-        X, y, stock_ids, full_df = generate_model_inputs(
-            tickers=valid_tickers,
-            train_start=start_train,
-            train_end=end_train,
-            seq_len=seq_len,
-            hold_days=hold_days,
-            verbose=False
-        )
-
-        # Train the model
-        train_model(X, y, stock_ids, verbose=False)
-
-        # Generate predictions
+        for i, t in enumerate(hold_days):
+            valid_tickers = generate_valid_tickers(
+                start_date=start_train,
+                end_date=end_test)
+            
+            X, y, stock_ids, regime_X, full_df = generate_model_inputs(
+                tickers=valid_tickers,
+                train_start=start_train,
+                train_end=end_train,
+                hold_days=t,
+                verbose=False
+            )
+    
+            train_model(
+                X, 
+                y, 
+                stock_ids, 
+                regime_X, 
+                hold_days=t,
+                verbose=False
+            )
+    
         model_inference(
-            tickers=valid_tickers,
-            full_df=full_df,
-            feature_dim=X.shape[2],
+            valid_tickers, 
+            full_df, 
+            feature_dim=X.shape[2], 
             hold_days=hold_days,
             verbose=False
         )
-
-        # Backtest predictions and compute Sharpe ratio
-        sharpe = backtest(
-            param_grid,
-            input_loc='../data/processed/predicted_df.csv',
-            output=False,
-            start_date=end_train,
-            end_date=end_test,
-            sharpe_only=True
-        )
+        
+        sharpe = backtest(param_grid, start_date=end_train, end_date=end_test, sharpe_only=True)
 
         # Save results
         wf_data.append({'Train Start': start_train, 'Sharpe': sharpe})

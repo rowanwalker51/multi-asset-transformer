@@ -446,11 +446,8 @@ def update_backtest(
         end_date=end_date,
         sharpe_only=False,
         output=False,
-        input_loc="../../data/processed/predicted_df.csv",
-        benchmark_loc="../../data/raw/ftse_index.csv",
-        rf_loc="../../data/raw/rf/rf.csv",
     )
-
+    
     strategy_returns = compute_returns(strategy_eq)
     drawdown_series = compute_drawdown(strategy_eq)
     rolling_volatility = rolling_vol(strategy_returns)
@@ -555,4 +552,4 @@ def update_backtest(
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=8050, debug=False)
