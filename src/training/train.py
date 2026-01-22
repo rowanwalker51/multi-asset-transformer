@@ -90,7 +90,7 @@ def train_model(
     
     loader = DataLoader(
         dataset,
-        shuffle=True,
+        shuffle=False,
         batch_size=batch_size,
         worker_init_fn=seed_worker,
         generator=g,
